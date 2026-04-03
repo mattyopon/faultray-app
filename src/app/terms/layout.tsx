@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Help & User Guide",
+  title: "Terms of Service",
   description:
-    "FaultRay user guide — getting started, dashboard, simulation, DORA compliance, settings, and FAQ.",
+    "FaultRay Terms of Service — the agreement governing your use of the FaultRay platform.",
   alternates: {
-    canonical: "https://faultray.com/help",
+    canonical: "https://faultray.com/terms",
   },
   robots: {
     index: true,
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   },
 };
 
-export default function HelpLayout({
+export default function TermsLayout({
   children,
 }: {
   children: React.ReactNode;
