@@ -5,6 +5,10 @@ on:
   push:
     branches: [develop]
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   zap-baseline:
     name: ZAP Baseline Scan
@@ -13,16 +17,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.12.0
+        uses: zaproxy/action-baseline@v0.15.0
         with:
           target: "https://faultray.com"
           fail_action: false
-          artifact_name: zap-report
-
-      - name: Upload ZAP Report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: zap-report
-          path: report_html.html
-          retention-days: 30
+          artifact_name: zap-report-${{ github.sha }}
