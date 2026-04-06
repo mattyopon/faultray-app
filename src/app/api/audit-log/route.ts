@@ -1,3 +1,6 @@
+/**
+ * API Route: /api/audit-log
+ */
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
 import { applyRateLimit } from "@/lib/rate-limit";

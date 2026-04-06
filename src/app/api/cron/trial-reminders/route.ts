@@ -1,3 +1,6 @@
+/**
+ * API Route: /api/cron/trial-reminders
+ */
 import { NextResponse } from "next/server";
 import { sendEmail } from "@/lib/email";
 import { trialReminderEmail } from "@/lib/email-templates";

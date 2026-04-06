@@ -1,3 +1,6 @@
+/**
+ * API Route: /api/coupon/redeem
+ */
 import { NextResponse } from "next/server";
 import { applyRateLimit } from "@/lib/rate-limit";
 

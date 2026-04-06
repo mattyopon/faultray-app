@@ -1,3 +1,6 @@
+/**
+ * API Route: /api/stripe/webhook
+ */
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { applyRateLimit } from "@/lib/rate-limit";

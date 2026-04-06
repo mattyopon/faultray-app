@@ -1,3 +1,6 @@
+/**
+ * API Route: /api/org/create
+ */
 import { NextResponse } from "next/server";
 import { applyRateLimit } from "@/lib/rate-limit";
 

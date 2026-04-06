@@ -1,4 +1,7 @@
 /**
+ * API Route: /api/account/delete
+ */
+/**
  * EXPORT-01: GDPR-compliant account deletion endpoint.
  *
  * Deletes or anonymizes all user data from Supabase then removes the
