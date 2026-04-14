@@ -84,7 +84,7 @@
   },
   "features": {
     "heading": "Todo lo que Necesitas",
-    "subheading": "Diez pilares del chaos engineering sin riesgos",
+    "subheading": "Diez pilares de la simulación de resiliencia pre-despliegue (prototipo de investigación)",
     "cards": [
       {
         "title": "Múltiples Motores de Simulación",

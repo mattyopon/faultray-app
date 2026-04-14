@@ -84,7 +84,7 @@
   },
   "features": {
     "heading": "Tout ce dont vous avez besoin",
-    "subheading": "Dix piliers du Chaos Engineering sans risque",
+    "subheading": "Dix piliers de la simulation de résilience avant déploiement (prototype de recherche)",
     "cards": [
       {
         "title": "Plusieurs Moteurs de Simulation",
