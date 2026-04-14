@@ -44,7 +44,7 @@ const plans: Plan[] = [
     annualMonthlyPrice: 239,   // 299 * 12 * 0.8 / 12 ≈ 239
     annualTotal: 2869,         // 299 * 12 * 0.8 rounded
     desc: "For teams that need research-prototype evidence exports and higher limits.",
-    features: ["14-day free trial", "100 simulations / month", "Up to 50 components", "Everything in Free", "Research-prototype evidence export (PDF)", "AI-powered analysis", "Email support (24h)"],
+    features: ["14-day free trial", "100 simulations / month", "Up to 50 components", "Everything in Free", "Research-prototype evidence export (PDF)", "AI-assisted analysis", "Email support (24h)"],
     disabledFeatures: ["Insurance API", "Custom SSO"],
     cta: "Start Free Trial",
     ctaHref: "/login?plan=pro",
@@ -59,7 +59,7 @@ const plans: Plan[] = [
     annualTotal: 949,
     desc: "For small teams getting started with reliability testing. 30 simulations covers most ongoing monitoring needs.",
     features: ["30 simulations / month", "Up to 20 components", "Everything in Free", "Email support (48h)", "Basic remediation suggestions"],
-    disabledFeatures: ["Research-prototype evidence export", "AI-powered analysis", "Custom SSO"],
+    disabledFeatures: ["Research-prototype evidence export", "AI-assisted analysis", "Custom SSO"],
     cta: "Start Starter",
     ctaHref: "/login?plan=starter",
     popular: false,
@@ -89,7 +89,7 @@ const featureComparison = [
   { name: "N-Layer Model", free: true, starter: true, pro: true, business: true },
   { name: "Research-prototype evidence export", free: false, starter: false, pro: "PDF", business: "PDF + API" },
   { name: "Insurance API", free: false, starter: false, pro: false, business: true },
-  { name: "AI-powered analysis", free: false, starter: false, pro: true, business: true },
+  { name: "AI-assisted analysis", free: false, starter: false, pro: true, business: true },
   { name: "Custom SSO / SAML", free: false, starter: false, pro: false, business: true },
   { name: "99.9% Uptime SLA", free: false, starter: false, pro: true, business: true },
   { name: "Support", free: "Community", starter: "Email (48h)", pro: "Email (24h)", business: "Dedicated (1h)" },

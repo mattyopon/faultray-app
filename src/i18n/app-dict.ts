@@ -1394,7 +1394,7 @@ export const appDict = {
   suggestions: {
     en: {
       title: "Improvement Suggestions",
-      subtitle: "AI-powered recommendations to improve your infrastructure resilience",
+      subtitle: "AI-assisted suggestions to help improve your infrastructure resilience (for engineering review)",
       potentialImprovement: "Potential Improvement",
       ifAll: "If all suggestions implemented",
       highPriority: "High Priority",
