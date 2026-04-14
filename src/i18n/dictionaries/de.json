@@ -87,20 +87,20 @@
     "subheading": "Zehn Säulen des risikofreien Chaos-Engineering",
     "cards": [
       {
-        "title": "100+ Simulation Engines",
+        "title": "Mehrere Simulations-Engines",
         "desc": "Netzwerk, Prozess, Ressourcen, Abhängigkeiten, Latenz, Blast Radius, SLA-Vertragsvalidierung und Dutzende mehr — angetrieben durch Monte Carlo, Markov-Ketten und Warteschlangentheorie."
       },
       {
-        "title": "2.000+ automatisch generierte Szenarien",
+        "title": "Tausende automatisch generierte Szenarien",
         "desc": "Von Einzelknoten-Ausfällen bis zu kaskadierenden Multi-Region-Ausfällen. Jedes Szenario wird aus Ihrer Topologie-YAML generiert — über 2.000 einzigartige Szenarien für eine typische 10-Komponenten-Topologie."
       },
       {
         "title": "N-Layer (5-Layer) Availability Model",
-        "desc": "Das einzige Tool, das Ihre Verfügbarkeitsobergrenze in fünf unabhängige Schichten zerlegt: Hardware, Software, Theoretical, Operational und External SLA."
+        "desc": "Zerlegt Ihre Verfügbarkeitsobergrenzen-Schätzung in fünf unabhängige Schichten: Hardware, Software, Theoretical, Operational und External SLA. Modellbasiert; die Genauigkeit hängt von der Topologietreue ab."
       },
       {
         "title": "KI-gestützte Analyse",
-        "desc": "Claude-gesteuerte Ursachenanalyse und umsetzbare Verbesserungsempfehlungen, nach Auswirkung und Kosten priorisiert."
+        "desc": "Claude-unterstützte Ursachenanalyse und Verbesserungsvorschläge, nach geschätzter Auswirkung und Kosten priorisiert. Die Ausgaben sind Vorschläge für die technische Überprüfung, keine abschließenden Vorgaben."
       },
       {
         "title": "DORA-Evidenzentwürfe (Forschungsprototyp)",
@@ -200,7 +200,7 @@
   },
   "nlayer": {
     "heading": "N-Layer (5-Layer) Availability Limit Model",
-    "subheading": "Das einzige Tool, das Ihre Verfügbarkeitsobergrenze in fünf unabhängige Beschränkungsschichten zerlegt",
+    "subheading": "Zerlegt Ihre Verfügbarkeitsobergrenzen-Schätzung in fünf unabhängige Beschränkungsschichten (modellbasiert; die Genauigkeit hängt von der Topologietreue ab)",
     "layers": [
       {
         "label": "Layer 1: Hardware Limit",

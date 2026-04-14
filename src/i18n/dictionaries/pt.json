@@ -87,16 +87,16 @@
     "subheading": "Dez pilares do chaos engineering sem riscos",
     "cards": [
       {
-        "title": "100+ Motores de Simulação",
+        "title": "Múltiplos Motores de Simulação",
         "desc": "Rede, processo, recurso, dependência, latência, raio de explosão, validação de contrato SLA e dezenas mais — impulsionados por Monte Carlo, cadeias de Markov e teoria de filas."
       },
       {
-        "title": "2.000+ Cenários Auto-gerados",
+        "title": "Milhares de Cenários Auto-gerados",
         "desc": "De falhas de nó único a interrupções em cascata multi-região. Cada cenário é gerado a partir do seu YAML de topologia — mais de 2.000 cenários únicos para uma topologia típica de 10 componentes."
       },
       {
         "title": "Modelo de Disponibilidade N-Layer (5 camadas)",
-        "desc": "A única ferramenta que decompõe seu limite de disponibilidade em cinco camadas independentes: Hardware, Software, Teórico, Operacional e SLA Externo."
+        "desc": "Decompõe sua estimativa de limite de disponibilidade em cinco camadas independentes: Hardware, Software, Teórico, Operacional e SLA Externo. Baseado em modelo; a precisão depende da fidelidade da topologia."
       },
       {
         "title": "Análise Potencializada por IA",
@@ -200,7 +200,7 @@
   },
   "nlayer": {
     "heading": "Modelo de Limite de Disponibilidade N-Layer (5 camadas)",
-    "subheading": "A única ferramenta que decompõe seu limite de disponibilidade em cinco camadas de restrição independentes",
+    "subheading": "Decompõe sua estimativa de limite de disponibilidade em cinco camadas de restrição independentes (baseado em modelo; a precisão depende da fidelidade da topologia)",
     "layers": [
       {
         "label": "Camada 1: Limite de Hardware",

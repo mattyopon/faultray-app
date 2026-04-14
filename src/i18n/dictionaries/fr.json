@@ -87,20 +87,20 @@
     "subheading": "Dix piliers du Chaos Engineering sans risque",
     "cards": [
       {
-        "title": "100+ Simulation Engines",
+        "title": "Plusieurs Moteurs de Simulation",
         "desc": "Réseau, processus, ressources, dépendances, latence, rayon d'impact, validation de contrats SLA et des dizaines d'autres — alimentés par Monte Carlo, chaînes de Markov et théorie des files d'attente."
       },
       {
-        "title": "2 000+ scénarios auto-générés",
-        "desc": "Des pannes de nœud unique aux pannes en cascade multi-régions. Chaque scénario est généré à partir de votre topologie YAML — plus de 2 000 scénarios uniques pour une topologie typique de 10 composants."
+        "title": "Milliers de scénarios auto-générés",
+        "desc": "Des pannes de nœud unique aux pannes en cascade multi-régions. Les scénarios sont générés à partir de votre topologie YAML déclarée ; une topologie typique de 10 composants produit environ 2 000 scénarios uniques (valeur indicative)."
       },
       {
         "title": "N-Layer (5-Layer) Availability Model",
-        "desc": "Le seul outil qui décompose votre plafond de disponibilité en cinq couches indépendantes : Hardware, Software, Theoretical, Operational et External SLA."
+        "desc": "Décompose votre estimation du plafond de disponibilité en cinq couches indépendantes : Hardware, Software, Theoretical, Operational et External SLA. Basé sur modèle ; la précision dépend de la fidélité de la topologie."
       },
       {
-        "title": "Analyse alimentée par l'IA",
-        "desc": "Analyse des causes racines pilotée par Claude et recommandations d'amélioration concrètes classées par impact et coût."
+        "title": "Analyse assistée par IA",
+        "desc": "Analyse des causes racines assistée par Claude et suggestions d'amélioration classées par impact et coût estimés. Les sorties sont des suggestions pour la revue d'ingénierie, pas des prescriptions finales."
       },
       {
         "title": "Brouillons d'évidence DORA (prototype de recherche)",
@@ -200,7 +200,7 @@
   },
   "nlayer": {
     "heading": "N-Layer (5-Layer) Availability Limit Model",
-    "subheading": "Le seul outil qui décompose votre plafond de disponibilité en cinq couches de contraintes indépendantes",
+    "subheading": "Décompose votre estimation du plafond de disponibilité en cinq couches de contraintes indépendantes (basé sur modèle ; la précision dépend de la fidélité de la topologie)",
     "layers": [
       {
         "label": "Layer 1: Hardware Limit",

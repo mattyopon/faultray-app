@@ -200,7 +200,7 @@
   },
   "nlayer": {
     "heading": "N-Layer (5-Layer) Availability Limit Model",
-    "subheading": "The only tool that decomposes your availability ceiling into five independent constraint layers",
+    "subheading": "Decomposes your availability ceiling estimate into five independent constraint layers (model-based; accuracy depends on topology fidelity)",
     "layers": [
       {
         "label": "Layer 1: Hardware Limit",
