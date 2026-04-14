@@ -797,7 +797,7 @@ export default async function LangHomePage() {
       <section className="py-16 bg-gradient-to-r from-[var(--bg-primary)] via-[var(--bg-card)] to-[var(--bg-primary)] border-y border-[var(--border-color)]">
         <div className="max-w-[900px] mx-auto px-6 text-center">
           <h2 className="text-[clamp(1.5rem,3vw,2rem)] font-bold tracking-tight mb-3">
-            Ready to prove your availability ceiling?
+            Ready to estimate your availability ceiling?
           </h2>
           <p className="text-[var(--text-secondary)] mb-8 max-w-[540px] mx-auto leading-relaxed">
             See FaultRay in action with your own infrastructure. Our team will walk you through a live simulation in 30 minutes.
