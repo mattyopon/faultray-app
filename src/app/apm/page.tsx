@@ -8,7 +8,7 @@ import { Radio, RefreshCw } from "lucide-react";
 import { useLocale } from "@/lib/useLocale";
 
 const T: Record<string, Record<string, string>> = {
-  en: { title: "Infrastructure Monitor", subtitle: "Real-time infrastructure metrics linked to simulation results — correlate live performance with modeled failure scenarios", agents: "Connected Agents", alerts: "Active Alerts", cpu: "Avg CPU", mem: "Avg Memory", agentTable: "Agents", alertTable: "Recent Alerts", refresh: "Refresh" },
+  en: { title: "Infrastructure Monitor", subtitle: "Near-real-time infrastructure metrics (refresh interval-based) linked to simulation results — correlate observed performance with modeled failure scenarios", agents: "Connected Agents", alerts: "Active Alerts", cpu: "Avg CPU", mem: "Avg Memory", agentTable: "Agents", alertTable: "Recent Alerts", refresh: "Refresh" },
   ja: { title: "インフラストラクチャ モニター", subtitle: "シミュレーション結果とリアルタイムメトリクスの連携 — モデル化された障害シナリオと実際のパフォーマンスを照合", agents: "接続エージェント", alerts: "アクティブアラート", cpu: "平均CPU", mem: "平均メモリ", agentTable: "エージェント", alertTable: "最近のアラート", refresh: "更新" },
   de: { title: "Infrastruktur-Monitor", subtitle: "Echtzeit-Infrastrukturmetriken verknüpft mit Simulationsergebnissen", agents: "Verbundene Agents", alerts: "Aktive Warnungen", cpu: "Ø CPU", mem: "Ø Speicher", agentTable: "Agents", alertTable: "Aktuelle Warnungen", refresh: "Aktualisieren" },
   fr: { title: "Moniteur d'Infrastructure", subtitle: "Métriques d'infrastructure en temps réel liées aux résultats de simulation", agents: "Agents connectés", alerts: "Alertes actives", cpu: "CPU moy.", mem: "Mémoire moy.", agentTable: "Agents", alertTable: "Alertes récentes", refresh: "Actualiser" },

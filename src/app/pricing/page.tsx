@@ -314,7 +314,7 @@ export default function PricingPage() {
             <ShieldCheck size={20} className="text-emerald-400 shrink-0" />
             <p className="text-sm text-emerald-300">
               <strong>Annual billing saves you 20%.</strong> Pro plan: save $719/yr. Business plan: save $2,398/yr.
-              All annual plans include 99.9% Uptime SLA guarantee.
+              All annual plans include a 99.9% Uptime SLA commitment (see terms for service-credit policy).
             </p>
           </div>
         </div>

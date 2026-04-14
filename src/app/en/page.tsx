@@ -842,8 +842,8 @@ export default async function LangHomePage() {
             {[
               {
                 source: "Google DORA State of DevOps Report 2024",
-                headline: "Top performers deploy 4× faster and have 10× lower change failure rates than low performers",
-                relevance: "FaultRay helps you explore your system's reliability bottleneck before your next deploy — research prototype, not audit tool.",
+                headline: "Top performers deploy 4× faster and have 10× lower change failure rates than low performers (Google DORA cohort finding; not attributable to any specific tool)",
+                relevance: "FaultRay offers one way to explore reliability bottlenecks before deploy — research prototype, and outcomes depend heavily on your engineering practices, not just tooling.",
                 color: "border-[var(--gold)]/20",
                 badge: "DevOps Research",
               },
