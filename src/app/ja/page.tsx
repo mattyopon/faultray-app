@@ -51,7 +51,7 @@ function HeroTerminal() {
             <span className="text-white">faultray demo</span>
           </div>
           <div className="terminal-line terminal-line-4">
-            <span className="text-[#FFD700] pl-5 block">Running 2,048 chaos scenarios across 100+ engines...</span>
+            <span className="text-[#FFD700] pl-5 block">Running 2,048 scenarios across multiple engines... (illustrative)</span>
           </div>
           <div className="terminal-line terminal-line-5">
             <span className="text-emerald-400 pl-5 block">Availability Ceiling: 99.9991% (4.05 nines)</span>
@@ -145,7 +145,7 @@ const planData = [
     features: [
       "5 simulations / month",
       "Up to 5 components",
-      "100+ simulation engines",
+      "Multiple simulation engines",
       "N-Layer Availability Model",
       "HTML reports",
       "Community support",
@@ -712,7 +712,7 @@ export default async function LangHomePage() {
                 <pre className="p-4 font-mono text-[0.8125rem] leading-[1.7] overflow-x-auto">
                   <code>
                     <span className="text-emerald-400">$</span> faultray run --topology infra.yaml{"\n"}
-                    <span className="text-[#64748b]">Running 2,048 scenarios across 100+ engines...</span>{"\n"}
+                    <span className="text-[#64748b]">Running 2,048 scenarios across multiple engines... (illustrative)</span>{"\n"}
                     <span className="text-emerald-400">Completed in 8.3s | Pass: 2,043 | Fail: 5</span>{"\n"}
                     {"\n"}
                     <span className="text-emerald-400">$</span> faultray report --format html{"\n"}

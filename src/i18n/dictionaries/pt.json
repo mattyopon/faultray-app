@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "title": "FaultRay — Chaos Engineering de Infraestrutura sem Riscos",
-    "description": "Prove matematicamente o limite de disponibilidade do seu sistema — sem tocar na produção. Chaos Engineering de simulação pura com mais de 2.000 cenários."
+    "title": "FaultRay — Simulação de Resiliência Pré-Implantação (Protótipo de Pesquisa)",
+    "description": "Estime o limite estrutural de disponibilidade do seu sistema por simulação em memória a partir da topologia declarada — sem tocar na produção. Protótipo de pesquisa; complementa o chaos engineering em tempo de execução."
   },
   "nav": {
     "features": "Funcionalidades",
@@ -12,8 +12,8 @@
   },
   "hero": {
     "badge": "Código aberto · Licença Apache 2.0",
-    "subtitle": "Chaos Engineering de Infraestrutura sem Riscos",
-    "description": "Prove matematicamente o limite de disponibilidade do seu sistema — sem tocar na produção.",
+    "subtitle": "Simulação de Resiliência Pré-Implantação (Protótipo de Pesquisa)",
+    "description": "Estime o limite estrutural de disponibilidade do seu sistema por simulação em memória — protótipo de pesquisa, sem tocar na produção.",
     "stats": {
       "scenarios": "Cenários",
       "engines": "Motores",
@@ -48,7 +48,7 @@
       "Zero custo — roda em um notebook",
       "Resultados instantâneos em segundos",
       "Funciona apenas com a topologia YAML",
-      "Limite de disponibilidade comprovado matematicamente"
+      "Estimativa do limite de disponibilidade baseada em modelo (depende da fidelidade da topologia)"
     ],
     "descriptionParts": {
       "before": "FaultRay usa ",
@@ -290,7 +290,7 @@
     "unit": "K"
   },
   "footer": {
-    "tagline": "Chaos engineering de infraestrutura sem riscos. Prove seu limite de disponibilidade matematicamente.",
+    "tagline": "Simulação de resiliência pré-implantação. Estime seu limite de disponibilidade a partir da topologia declarada. Protótipo de pesquisa — complementa o chaos engineering em tempo de execução.",
     "madeIn": "Feito em Tóquio",
     "product": "Produto",
     "resources": "Recursos",

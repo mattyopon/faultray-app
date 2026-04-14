@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "title": "FaultRay — Chaos Engineering d'Infrastructure Sans Risque",
-    "description": "Prouvez mathématiquement le plafond de disponibilité de votre système — sans toucher la production. Chaos Engineering par simulation pure avec plus de 2 000 scénarios."
+    "title": "FaultRay — Simulation de Résilience Avant Déploiement (Prototype de Recherche)",
+    "description": "Estimez le plafond structurel de disponibilité de votre système par simulation en mémoire à partir de la topologie déclarée — sans toucher la production. Prototype de recherche; complète le chaos engineering à l'exécution."
   },
   "nav": {
     "features": "Fonctionnalités",
@@ -12,8 +12,8 @@
   },
   "hero": {
     "badge": "Open Source · Apache License 2.0",
-    "subtitle": "Chaos Engineering d'Infrastructure Sans Risque",
-    "description": "Prouvez mathématiquement le plafond de disponibilité de votre système — sans toucher la production.",
+    "subtitle": "Simulation de Résilience Avant Déploiement (Prototype de Recherche)",
+    "description": "Estimez le plafond structurel de disponibilité de votre système par simulation en mémoire — prototype de recherche, sans toucher la production.",
     "stats": {
       "scenarios": "Scénarios",
       "engines": "Moteurs",
@@ -44,11 +44,11 @@
   "solution": {
     "title": "La Solution",
     "items": [
-      "Zéro risque — aucune panne réelle injectée",
+      "Aucune injection de pannes en production — simulation en mémoire",
       "Zéro coût — fonctionne sur un ordinateur portable",
       "Résultats instantanés en quelques secondes",
       "Fonctionne à partir de la topologie YAML seule",
-      "Plafond de disponibilité prouvé mathématiquement"
+      "Estimation du plafond de disponibilité basée sur modèle (dépend de la fidélité de la topologie)"
     ],
     "descriptionParts": {
       "before": "FaultRay utilise la ",
@@ -290,7 +290,7 @@
     "unit": "K"
   },
   "footer": {
-    "tagline": "Chaos Engineering d'infrastructure sans risque. Prouvez mathématiquement votre plafond de disponibilité.",
+    "tagline": "Simulation de résilience avant déploiement. Estimez votre plafond de disponibilité à partir de la topologie déclarée. Prototype de recherche — complète le chaos engineering à l'exécution.",
     "madeIn": "Made in Tokyo",
     "product": "Produit",
     "resources": "Ressources",

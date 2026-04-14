@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "title": "FaultRay — Chaos Engineering de Infraestructura sin Riesgos",
-    "description": "Demuestra matemáticamente el límite de disponibilidad de tu sistema, sin tocar producción. Chaos Engineering de simulación pura con más de 2,000 escenarios."
+    "title": "FaultRay — Simulación de Resiliencia Pre-Despliegue (Prototipo de Investigación)",
+    "description": "Estima el límite estructural de disponibilidad de tu sistema mediante simulación en memoria a partir de la topología declarada, sin tocar producción. Prototipo de investigación; complementa el chaos engineering en tiempo de ejecución."
   },
   "nav": {
     "features": "Funciones",
@@ -12,8 +12,8 @@
   },
   "hero": {
     "badge": "Código abierto · Licencia Apache 2.0",
-    "subtitle": "Chaos Engineering de Infraestructura sin Riesgos",
-    "description": "Demuestra matemáticamente el límite de disponibilidad de tu sistema, sin tocar producción.",
+    "subtitle": "Simulación de Resiliencia Pre-Despliegue (Prototipo de Investigación)",
+    "description": "Estima el límite estructural de disponibilidad de tu sistema mediante simulación en memoria — prototipo de investigación, sin tocar producción.",
     "stats": {
       "scenarios": "Escenarios",
       "engines": "Motores",
@@ -48,7 +48,7 @@
       "Cero coste — se ejecuta en un portátil",
       "Resultados instantáneos en segundos",
       "Funciona solo con la topología YAML",
-      "Límite de disponibilidad demostrado matemáticamente"
+      "Estimación del límite de disponibilidad basada en modelo (depende de la fidelidad de la topología)"
     ],
     "descriptionParts": {
       "before": "FaultRay utiliza ",
@@ -290,7 +290,7 @@
     "unit": "K"
   },
   "footer": {
-    "tagline": "Chaos engineering de infraestructura sin riesgos. Demuestra tu límite de disponibilidad matemáticamente.",
+    "tagline": "Simulación de resiliencia pre-despliegue. Estima tu límite de disponibilidad a partir de la topología declarada. Prototipo de investigación — complementa el chaos engineering en tiempo de ejecución.",
     "madeIn": "Fabricado en Tokio",
     "product": "Producto",
     "resources": "Recursos",

@@ -72,7 +72,7 @@ const plans: Plan[] = [
     annualMonthlyPrice: 0,
     annualTotal: 0,
     desc: "Perfect for individual engineers exploring chaos engineering. 5 simulations covers most proof-of-concept evaluations.",
-    features: ["5 simulations / month", "Up to 5 components", "100+ simulation engines", "N-Layer Availability Model", "HTML reports", "Community support"],
+    features: ["5 simulations / month", "Up to 5 components", "Multiple simulation engines", "N-Layer Availability Model", "HTML reports", "Community support"],
     disabledFeatures: ["Research-prototype evidence export", "Custom SSO"],
     cta: "Get Started Free",
     ctaHref: "/login",

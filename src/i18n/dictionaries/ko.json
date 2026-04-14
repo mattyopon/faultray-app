@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "title": "FaultRay — 무위험 인프라 Chaos Engineering",
-    "description": "프로덕션을 건드리지 않고 시스템 가용성 한계를 수학적으로 증명하세요. 2,000+ 시나리오를 갖춘 순수 시뮬레이션 Chaos Engineering."
+    "title": "FaultRay — 배포 전 인프라 복원력 시뮬레이션 (연구 프로토타입)",
+    "description": "선언된 토폴로지로부터 인메모리 시뮬레이션을 통해 시스템의 구조적 가용성 한계를 추정합니다 — 프로덕션을 건드리지 않고. 연구 프로토타입; 런타임 Chaos Engineering을 보완합니다."
   },
   "nav": {
     "features": "기능",
@@ -12,8 +12,8 @@
   },
   "hero": {
     "badge": "오픈소스 · Apache 2.0 라이선스",
-    "subtitle": "무위험 인프라 Chaos Engineering",
-    "description": "프로덕션을 건드리지 않고 시스템 가용성 한계를 수학적으로 증명하세요.",
+    "subtitle": "배포 전 인프라 복원력 시뮬레이션 (연구 프로토타입)",
+    "description": "인메모리 시뮬레이션을 통해 시스템 가용성 한계를 추정합니다 — 연구 프로토타입, 프로덕션을 건드리지 않고.",
     "stats": {
       "scenarios": "시나리오",
       "engines": "엔진",
@@ -44,11 +44,11 @@
   "solution": {
     "title": "해결책",
     "items": [
-      "무위험 — 실제 장애 미주입",
+      "프로덕션 장애 주입 없음 — 인메모리 시뮬레이션",
       "무비용 — 노트북에서 실행",
       "초 단위 즉각적인 결과",
       "YAML 토폴로지만으로 작동",
-      "수학적으로 증명된 가용성 한계"
+      "모델 기반 가용성 한계 추정 (토폴로지 충실도에 따라 달라짐)"
     ],
     "descriptionParts": {
       "before": "FaultRay는 ",
@@ -84,7 +84,7 @@
   },
   "features": {
     "heading": "필요한 모든 것",
-    "subheading": "무위험 Chaos Engineering의 열 가지 기둥",
+    "subheading": "사전 배포 복원력 시뮬레이션의 열 가지 기둥 (연구 프로토타입)",
     "cards": [
       {
         "title": "100+ 시뮬레이션 엔진",
@@ -290,7 +290,7 @@
     "unit": "K"
   },
   "footer": {
-    "tagline": "무위험 인프라 Chaos Engineering. 가용성 한계를 수학적으로 증명하세요.",
+    "tagline": "배포 전 복원력 시뮬레이션. 선언된 토폴로지로부터 가용성 한계를 추정합니다. 연구 프로토타입 — 런타임 Chaos Engineering을 보완합니다.",
     "madeIn": "도쿄에서 제작",
     "product": "제품",
     "resources": "리소스",
