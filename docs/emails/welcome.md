@@ -10,7 +10,7 @@
 
 Hi {{ user.name || "there" }},
 
-Welcome to **FaultRay** — the pre-deployment resilience simulation platform (research prototype) that lets you estimate your system's structural availability from declared topology, without touching production.
+Welcome to **FaultRay** — the pre-deployment resilience simulation platform (research prototype) that lets you estimate your system's structural availability ceiling from declared topology, without touching production.
 
 You're now on the **{{ plan.name }}** plan. Here's what you can do right now:
 
