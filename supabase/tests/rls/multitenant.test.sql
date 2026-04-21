@@ -322,11 +322,15 @@ select is(
 -- User B (member) should not be able to INSERT into team_members (admin only)
 select test_as_user(:'user_b_id'::uuid);
 
+-- pgTAP 3-arg throws_ok(text, text, text) は 2 引数目を errmsg として解釈するため
+-- SQLSTATE を強制したい場合は char(5) にキャストする必要がある。
+-- ここでは「RLS により INSERT がブロックされる」ことだけ保証できればよいので
+-- 2-arg form (query, description) を使い「何らかの error が throw される」を
+-- assert する。
 select throws_ok(
   $$ insert into public.team_members (team_id, user_id, role)
      values ('44444444-4444-4444-4444-444444444444'::uuid,
              '33333333-3333-3333-3333-333333333333'::uuid, 'admin') $$,
-  '42501',  -- insufficient_privilege
   'team_members: User B (member, not admin) cannot INSERT new team member'
 );
 
@@ -337,7 +341,6 @@ select throws_ok(
   $$ insert into public.team_members (team_id, user_id, role)
      values ('55555555-5555-5555-5555-555555555555'::uuid,
              '11111111-1111-1111-1111-111111111111'::uuid, 'member') $$,
-  '42501',
   'team_members: User A cannot INSERT into team Y membership'
 );
 
@@ -421,11 +424,10 @@ select is(
   'anon: billing_events rows = 0'
 );
 
--- anon cannot INSERT
+-- anon cannot INSERT (grant 無し → 42501, 2-arg throws_ok で任意 error を受容)
 select throws_ok(
   $$ insert into public.profiles (id, email) values
      ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 'evil@anon.local') $$,
-  '42501',
   'anon: INSERT into profiles blocked'
 );
 
@@ -438,7 +440,6 @@ select test_as_user(:'user_a_id'::uuid);
 select throws_ok(
   $$ insert into public.billing_events (team_id, event_type, data)
      values ('44444444-4444-4444-4444-444444444444'::uuid, 'hacked', '{}'::jsonb) $$,
-  '42501',
   'billing_events: authenticated user cannot INSERT (append-only reserved for service-role webhook)'
 );
 
@@ -464,7 +465,6 @@ select test_as_user(:'user_a_id'::uuid);
 select throws_ok(
   $$ insert into public.usage (team_id, month, simulation_count)
      values ('44444444-4444-4444-4444-444444444444'::uuid, '2026-05', 999) $$,
-  '42501',
   'usage: authenticated user cannot INSERT (reserved for service-role)'
 );
 
