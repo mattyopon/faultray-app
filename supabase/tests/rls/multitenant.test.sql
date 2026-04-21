@@ -26,8 +26,8 @@ begin;
 create extension if not exists pgtap;
 
 -- ---------- テストプラン ----------
--- RLS 対象 7 テーブル × 各シナリオ (正例 + 反例) = ~40 assertion
-select plan(42);
+-- RLS 対象 7 テーブル × 各シナリオ (正例 + 反例) = 40 assertion
+select plan(40);
 
 -- ============================================================
 -- Setup: auth.users を直接 INSERT して 3 ユーザー + 2 team を作成
