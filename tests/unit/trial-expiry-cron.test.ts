@@ -1,66 +1,34 @@
 /**
  * L2: Unit Test — /api/cron/trial-expiry (Issue #30)
  *
- * Locks in the behavior introduced by PR:
- *   - Trial expired + not active paid subscription → downgrade to plan='free'
- *   - Trial expired + active paid subscription → skip (no downgrade)
- *   - No auth / wrong secret → 401
- *   - No Supabase config → 503
+ * Route は PL/pgSQL function `public.downgrade_expired_trials()` を RPC で
+ * 呼ぶだけの薄いラッパーなので、テスト観点は:
+ *   - auth / env / rate-limit が期待通り
+ *   - RPC 結果 (成功/空/error) を適切にマップして返却
+ *   - 呼び出し先が正確 (rpc 名 "downgrade_expired_trials")
+ *
+ * 実際の DB レベル downgrade ロジックは pgTAP tests で別途 lock すべき
+ * (このテストは route の wiring のみ検証)。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// ── Mocks ─────────────────────────────────────────────────────
-// rate-limit: always pass
 vi.mock("@/lib/rate-limit", () => ({
   applyRateLimit: () => undefined,
 }));
 
-// supabase-js: build a query builder stub whose chained methods return
-// preset rows / errors per-test.
-type Row = {
-  id: string;
-  email: string;
-  plan: string;
-  trial_ends_at: string | null;
-  subscription_status: string | null;
+// RPC mock state
+let rpcResult: { data: Array<{ id: string; email: string }> | null; error: { message: string } | null } = {
+  data: [],
+  error: null,
 };
-
-let selectRows: Row[] = [];
-let selectError: { message: string } | null = null;
-let updateError: { message: string } | null = null;
-let updateCount: number | null = null;
-let capturedUpdatePayload: Record<string, unknown> | null = null;
-let capturedUpdateIds: string[] | null = null;
-
-function makeFromStub() {
-  // .update(...).in(...) returns { error, count }
-  const updateChain = {
-    in: vi.fn((_col: string, ids: string[]) => {
-      capturedUpdateIds = ids;
-      return Promise.resolve({ error: updateError, count: updateCount });
-    }),
-  };
-
-  // .select(...).lt(...).neq(...) returns { data, error }
-  const selectChain = {
-    lt: vi.fn(() => selectChain),
-    neq: vi.fn(() =>
-      Promise.resolve({ data: selectRows, error: selectError })
-    ),
-  };
-
-  return {
-    select: vi.fn(() => selectChain),
-    update: vi.fn((payload: Record<string, unknown>) => {
-      capturedUpdatePayload = payload;
-      return updateChain;
-    }),
-  };
-}
+let capturedRpcName: string | null = null;
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: vi.fn(() => ({
-    from: vi.fn(() => makeFromStub()),
+    rpc: vi.fn((name: string) => {
+      capturedRpcName = name;
+      return Promise.resolve(rpcResult);
+    }),
   })),
 }));
 
@@ -70,12 +38,8 @@ describe("L2: /api/cron/trial-expiry", () => {
   beforeEach(() => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.spyOn(console, "info").mockImplementation(() => undefined);
-    selectRows = [];
-    selectError = null;
-    updateError = null;
-    updateCount = null;
-    capturedUpdatePayload = null;
-    capturedUpdateIds = null;
+    rpcResult = { data: [], error: null };
+    capturedRpcName = null;
     process.env.CRON_SECRET = "test-secret";  // pragma: allowlist secret
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-key";  // pragma: allowlist secret
@@ -102,11 +66,14 @@ describe("L2: /api/cron/trial-expiry", () => {
     const { status, body } = await invoke();
     expect(status).toBe(401);
     expect(body.error).toBe("Unauthorized");
+    // RPC must not have been called when unauthorized
+    expect(capturedRpcName).toBeNull();
   });
 
   it("returns 401 with wrong bearer token", async () => {
     const { status } = await invoke({ authorization: "Bearer wrong" });
     expect(status).toBe(401);
+    expect(capturedRpcName).toBeNull();
   });
 
   it("returns 503 when Supabase env is missing", async () => {
@@ -118,109 +85,52 @@ describe("L2: /api/cron/trial-expiry", () => {
     expect(body.error).toBe("Supabase not configured");
   });
 
-  it("returns downgraded:0 when no expired trials found", async () => {
-    selectRows = [];
+  it("returns downgraded:0 when RPC returns empty array", async () => {
+    rpcResult = { data: [], error: null };
     const { status, body } = await invoke({
       authorization: "Bearer test-secret",
     });
     expect(status).toBe(200);
     expect(body.downgraded).toBe(0);
+    expect(capturedRpcName).toBe("downgrade_expired_trials");
   });
 
-  it("downgrades expired-trial users without active subscription", async () => {
-    selectRows = [
-      {
-        id: "u1",
-        email: "u1@test.local",
-        plan: "business",
-        trial_ends_at: "2026-01-01T00:00:00Z",
-        subscription_status: null,
-      },
-      {
-        id: "u2",
-        email: "u2@test.local",
-        plan: "pro",
-        trial_ends_at: "2026-01-01T00:00:00Z",
-        subscription_status: "canceled",
-      },
-    ];
-    updateCount = 2;
-
+  it("returns downgraded count equal to RPC rows", async () => {
+    rpcResult = {
+      data: [
+        { id: "u1", email: "u1@test.local" },
+        { id: "u2", email: "u2@test.local" },
+        { id: "u3", email: "u3@test.local" },
+      ],
+      error: null,
+    };
     const { status, body } = await invoke({
       authorization: "Bearer test-secret",
     });
     expect(status).toBe(200);
-    expect(body.downgraded).toBe(2);
-    expect(body.skipped_paid).toBe(0);
-    expect(capturedUpdatePayload).toEqual({
-      plan: "free",
-      trial_ends_at: null,
-    });
-    expect(capturedUpdateIds).toEqual(["u1", "u2"]);
+    expect(body.downgraded).toBe(3);
   });
 
-  it("skips users with active paid subscription", async () => {
-    selectRows = [
-      {
-        id: "paying",
-        email: "paid@test.local",
-        plan: "business",
-        trial_ends_at: "2026-01-01T00:00:00Z",
-        subscription_status: "active",
-      },
-    ];
-
-    const { status, body } = await invoke({
-      authorization: "Bearer test-secret",
-    });
-    expect(status).toBe(200);
-    expect(body.downgraded).toBe(0);
-    expect(body.skipped_paid).toBe(1);
-    // update should not have been called for any id
-    expect(capturedUpdateIds).toBeNull();
-  });
-
-  it("also skips subscription_status='trialing' (paid trial via Stripe)", async () => {
-    selectRows = [
-      {
-        id: "stripe-trial",
-        email: "strial@test.local",
-        plan: "business",
-        trial_ends_at: "2026-01-01T00:00:00Z",
-        subscription_status: "trialing",
-      },
-    ];
-
-    const { body } = await invoke({ authorization: "Bearer test-secret" });
-    expect(body.downgraded).toBe(0);
-    expect(body.skipped_paid).toBe(1);
-  });
-
-  it("returns 500 on query error", async () => {
-    selectError = { message: "db down" };
+  it("returns 500 on RPC error", async () => {
+    rpcResult = { data: null, error: { message: "function does not exist" } };
     const { status, body } = await invoke({
       authorization: "Bearer test-secret",
     });
     expect(status).toBe(500);
-    expect(body.error).toBe("Query failed");
+    expect(body.error).toBe("Downgrade failed");
   });
 
-  it("returns 500 on update error", async () => {
-    selectRows = [
-      {
-        id: "u1",
-        email: "u1@test.local",
-        plan: "business",
-        trial_ends_at: "2026-01-01T00:00:00Z",
-        subscription_status: null,
-      },
-    ];
-    updateError = { message: "constraint violation" };
-
+  it("handles null data gracefully (treats as 0 downgrades)", async () => {
+    rpcResult = { data: null, error: null };
     const { status, body } = await invoke({
       authorization: "Bearer test-secret",
     });
-    expect(status).toBe(500);
-    expect(body.error).toBe("Update failed");
+    expect(status).toBe(200);
+    expect(body.downgraded).toBe(0);
+  });
+
+  it("invokes the exact RPC function name", async () => {
+    await invoke({ authorization: "Bearer test-secret" });
+    expect(capturedRpcName).toBe("downgrade_expired_trials");
   });
 });
