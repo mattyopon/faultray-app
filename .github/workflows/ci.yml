@@ -179,7 +179,15 @@ jobs:
       - name: Run pgTAP RLS tests
         run: |
           set -euo pipefail
-          psql -v ON_ERROR_STOP=1 -f supabase/tests/rls/multitenant.test.sql
+          # pgTAP は「not ok」行を出すだけで psql exit は 0 のままなので、
+          # TAP 出力を tee に通し、grep で "not ok" / "Looks like you failed" を
+          # 検出して job を fail させる。
+          LOG=$(mktemp)
+          psql -v ON_ERROR_STOP=1 -f supabase/tests/rls/multitenant.test.sql | tee "$LOG"
+          if grep -qE '^ *not ok |Looks like you (failed|planned)' "$LOG"; then
+            echo "::error::pgTAP reported failures (see log above)"
+            exit 1
+          fi
 
   build:
     name: Build Check
