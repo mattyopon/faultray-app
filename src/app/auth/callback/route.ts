@@ -39,6 +39,11 @@ export async function GET(request: Request) {
     if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) {
       return false;
     }
+    // Reject path-traversal segments that could normalize out of the
+    // allow-listed prefix (e.g. `/dashboard/../admin` → `/admin`).
+    if (value.includes("..") || value.includes("\\")) {
+      return false;
+    }
     // Must begin with one of our known top-level segments
     return SAFE_REDIRECT_PREFIXES.some(
       (p) => value === p || value.startsWith(`${p}/`) || value.startsWith(`${p}?`) || value.startsWith(`${p}#`)

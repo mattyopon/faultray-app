@@ -42,6 +42,7 @@ describe("L2: auth/callback redirectTo allow-list (#26)", () => {
     ];
     const isSafeRedirect = (value: string): boolean => {
       if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return false;
+      if (value.includes("..") || value.includes("\\")) return false;
       return SAFE_REDIRECT_PREFIXES.some(
         (p) => value === p || value.startsWith(`${p}/`) || value.startsWith(`${p}?`) || value.startsWith(`${p}#`)
       );
