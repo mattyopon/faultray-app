@@ -27,10 +27,16 @@ language sql
 security definer
 set search_path = public, pg_temp
 as $$
+  -- Self-review follow-up: also clear subscription_status to 'canceled'
+  -- so UI and downstream filters don't keep reading 'trialing' after the
+  -- plan has been downgraded to 'free'. Without this, a user whose trial
+  -- expires without a Stripe subscription still shows status='trialing'
+  -- which is logically inconsistent.
   update public.profiles
   set
     plan = 'free',
-    trial_ends_at = null
+    trial_ends_at = null,
+    subscription_status = 'canceled'
   where
     trial_ends_at is not null
     and trial_ends_at < now()
