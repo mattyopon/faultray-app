@@ -1,15 +1,20 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import type { User } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 
-type AuthSuccess = { user: User; error: null };
-type AuthFailure = { user: null; error: NextResponse };
+type SsrSupabase = Awaited<ReturnType<typeof createClient>>;
+
+type AuthSuccess = { user: User; supabase: SsrSupabase; error: null };
+type AuthFailure = { user: null; supabase: null; error: NextResponse };
 
 /** Plan hierarchy: free < pro < business */
 export type Plan = "free" | "pro" | "business";
 
-type PlanSuccess = { user: User; plan: Plan; error: null };
-type PlanFailure = { user: null; plan: null; error: NextResponse };
+type PlanSuccess = { user: User; supabase: SsrSupabase; plan: Plan; error: null };
+type PlanFailure = { user: null; supabase: null; plan: null; error: NextResponse };
+
+// Re-export for downstream typing convenience.
+export type { SupabaseClient };
 
 const PLAN_ORDER: Record<Plan, number> = { free: 0, pro: 1, business: 2 };
 
@@ -65,15 +70,16 @@ export async function requireAuth(request: Request): Promise<AuthSuccess | AuthF
   // CSRF チェック
   const csrfError = checkCsrf(request);
   if (csrfError) {
-    return { user: null, error: csrfError };
+    return { user: null, supabase: null, error: csrfError };
   }
 
-  let supabase: Awaited<ReturnType<typeof createClient>>;
+  let supabase: SsrSupabase;
   try {
     supabase = await createClient();
   } catch {
     return {
       user: null,
+      supabase: null,
       error: NextResponse.json({ error: "Supabase not configured" }, { status: 503 }),
     };
   }
@@ -86,11 +92,12 @@ export async function requireAuth(request: Request): Promise<AuthSuccess | AuthF
   if (authError || !user) {
     return {
       user: null,
+      supabase: null,
       error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
     };
   }
 
-  return { user, error: null };
+  return { user, supabase, error: null };
 }
 
 /**
@@ -109,20 +116,9 @@ export async function requirePlan(
 ): Promise<PlanSuccess | PlanFailure> {
   const authResult = await requireAuth(request);
   if (authResult.error) {
-    return { user: null, plan: null, error: authResult.error };
+    return { user: null, supabase: null, plan: null, error: authResult.error };
   }
-  const { user } = authResult;
-
-  let supabase: Awaited<ReturnType<typeof createClient>>;
-  try {
-    supabase = await createClient();
-  } catch {
-    return {
-      user: null,
-      plan: null,
-      error: NextResponse.json({ error: "Supabase not configured" }, { status: 503 }),
-    };
-  }
+  const { user, supabase } = authResult;
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
@@ -134,6 +130,7 @@ export async function requirePlan(
     console.error("[requirePlan] Profile fetch error:", profileError.message);
     return {
       user: null,
+      supabase: null,
       plan: null,
       error: NextResponse.json({ error: "Failed to verify plan" }, { status: 500 }),
     };
@@ -144,6 +141,7 @@ export async function requirePlan(
   if (PLAN_ORDER[userPlan] < PLAN_ORDER[requiredPlan]) {
     return {
       user: null,
+      supabase: null,
       plan: null,
       error: NextResponse.json(
         { error: `Plan upgrade required. This endpoint requires '${requiredPlan}' or higher.` },
@@ -152,5 +150,5 @@ export async function requirePlan(
     };
   }
 
-  return { user, plan: userPlan, error: null };
+  return { user, supabase, plan: userPlan, error: null };
 }

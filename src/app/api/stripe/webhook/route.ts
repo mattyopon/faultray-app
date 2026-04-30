@@ -130,6 +130,54 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Webhook signature verification failed" }, { status: 400 });
   }
 
+  // P1-4: Idempotency guard (Codex audit 2026-04-30).
+  // Insert event.id with UNIQUE constraint BEFORE side effects so duplicate
+  // deliveries (Stripe retries / replay within signature timestamp window)
+  // are short-circuited atomically.
+  // Schema: supabase/migrations/013_security_hardening.sql.processed_stripe_events
+  try {
+    const dedupeAdmin = await getSupabaseAdmin();
+    const eventCustomerId =
+      typeof (event.data.object as { customer?: unknown })?.customer === "string"
+        ? ((event.data.object as { customer?: string }).customer ?? null)
+        : null;
+    const { error: insertError } = await dedupeAdmin
+      .from("processed_stripe_events")
+      .insert({
+        event_id: event.id,
+        event_type: event.type,
+        customer_id: eventCustomerId,
+      });
+    if (insertError) {
+      // Postgres unique_violation = '23505'. Supabase JS surfaces that as
+      // PostgrestError with code '23505'.
+      const code = (insertError as { code?: string }).code;
+      if (code === "23505") {
+        console.info(
+          `[stripe/webhook] duplicate event ${event.id} (${event.type}) — skipping`
+        );
+        return NextResponse.json({ received: true, duplicate: true });
+      }
+      // Non-conflict insert error → fail to make Stripe retry rather than
+      // silently swallow.
+      console.error(
+        "[stripe/webhook] processed_stripe_events insert failed:",
+        insertError.message
+      );
+      return NextResponse.json(
+        { error: "Idempotency ledger write failed" },
+        { status: 500 }
+      );
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[stripe/webhook] Idempotency guard error:", message);
+    return NextResponse.json(
+      { error: "Idempotency guard failure" },
+      { status: 500 }
+    );
+  }
+
   try {
     switch (event.type) {
       // ── Checkout completed: new subscription starts ──────────────────────

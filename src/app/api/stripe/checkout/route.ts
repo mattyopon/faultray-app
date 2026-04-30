@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { applyRateLimit } from "@/lib/rate-limit";
+import { requireAuth } from "@/lib/api-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,11 @@ export async function POST(request: Request) {
   const limited = await applyRateLimit(request, { limit: 10, windowMs: 60_000 });
   if (limited) return limited;
 
+  // Auth + CSRF gate (P1-2). Was using bare auth.getUser() without CSRF check.
+  const { user, error: authError } = await requireAuth(request);
+  if (authError) return authError;
+  const userId = user.id;
+
   const secretKey = process.env.STRIPE_SECRET_KEY;
   if (!secretKey || secretKey === "sk_test_placeholder") {
     return NextResponse.json(
@@ -69,24 +75,31 @@ export async function POST(request: Request) {
     );
   }
 
-  // API-01: 認証必須 — ログインユーザーのみチェックアウト可能
-  const { createClient } = await import("@/lib/supabase/server");
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const userId = user.id;
-
   // APIPERF-05: Stripe API呼び出しにタイムアウトを設定（デフォルト80sを30sに短縮）
   const stripe = new Stripe(secretKey, { timeout: 30000 });
 
-  const origin =
-    request.headers.get("origin") ??
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    "https://faultray.com";
+  // P2-1: success_url / cancel_url は server-side allowlist のみ。以前は
+  // request.headers.get('origin') を最優先していたため、cross-origin な
+  // 認証済みリクエストで attacker domain への post-payment redirect が成立
+  // しうる Stripe Checkout Session を作れた。
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  if (!siteUrl) {
+    console.error("[stripe/checkout] NEXT_PUBLIC_SITE_URL not configured");
+    return NextResponse.json(
+      { error: "Server configuration error. Please contact support." },
+      { status: 503 }
+    );
+  }
+  let origin: string;
+  try {
+    origin = new URL(siteUrl).origin;
+  } catch {
+    console.error("[stripe/checkout] NEXT_PUBLIC_SITE_URL is not a valid URL:", siteUrl);
+    return NextResponse.json(
+      { error: "Server configuration error. Please contact support." },
+      { status: 503 }
+    );
+  }
 
   const unitAmount = PRICES[plan][interval];
   const trialDays = TRIAL_DAYS[plan];
