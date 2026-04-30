@@ -104,20 +104,30 @@ export async function POST(request: Request) {
     // P1-B 補強: profile update が失敗したら current_uses を decrement で
     // best-effort rollback。完璧ではない (race / DB error の二段失敗もある)
     // が、follow-up issue で 1-RPC transaction 化するまでの暫定。
+    // (review-loop 2 P1): rollback の affected row 数も見る。0 行なら別 worker
+    // がこの間に increment しているため burn-without-credit 確定。
     console.error("[coupon/redeem] profile update failed:", profileError.message);
-    const { error: rollbackError } = await supabase
+    const { data: rolledBack, error: rollbackError } = await supabase
       .from("coupons")
       .update({ current_uses: coupon.current_uses })
       .eq("id", coupon.id)
-      .eq("current_uses", coupon.current_uses + 1);
+      .eq("current_uses", coupon.current_uses + 1)
+      .select("id");
     if (rollbackError) {
       console.error(
-        "[coupon/redeem] BURN-WITHOUT-CREDIT: rollback also failed for coupon",
+        "[coupon/redeem] BURN-WITHOUT-CREDIT: rollback DB error for coupon",
         coupon.id,
         "user",
         user.id,
         "error:",
         rollbackError.message
+      );
+    } else if (!rolledBack || rolledBack.length === 0) {
+      console.error(
+        "[coupon/redeem] BURN-WITHOUT-CREDIT: rollback no-op (concurrent redeem moved counter past N+1) for coupon",
+        coupon.id,
+        "user",
+        user.id
       );
     }
     return NextResponse.json({ error: "Failed to update profile" }, { status: 500 });

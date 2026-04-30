@@ -217,11 +217,15 @@ export async function POST(request: Request) {
         );
       }
       // status === 'failed' → re-claim by flipping back to 'processing'.
-      const { error: reclaimError } = await dedupeAdmin
+      // (review-loop 2, P1) .select() で affected row 数を確認し、
+      // 同時 retry が 2件 'failed' を見て両方 reclaim を試みた race を防ぐ。
+      // 1件だけが update できる (もう1件は 0 rows = 別 worker が先に reclaim 済)。
+      const { data: reclaimed, error: reclaimError } = await dedupeAdmin
         .from("processed_stripe_events")
         .update({ status: "processing", last_error: null })
         .eq("event_id", event.id)
-        .eq("status", "failed");
+        .eq("status", "failed")
+        .select("event_id");
       if (reclaimError) {
         console.error(
           "[stripe/webhook] failed to re-claim failed event:",
@@ -230,6 +234,13 @@ export async function POST(request: Request) {
         return NextResponse.json(
           { error: "Idempotency ledger reclaim failed" },
           { status: 500 }
+        );
+      }
+      if (!reclaimed || reclaimed.length === 0) {
+        // Another worker reclaimed in the meantime — treat as in-progress.
+        return NextResponse.json(
+          { received: true, status: "in_progress" },
+          { status: 202 }
         );
       }
       claimedNew = true;

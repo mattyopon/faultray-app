@@ -78,44 +78,57 @@ export async function POST(request: Request) {
   // APIPERF-05: Stripe API呼び出しにタイムアウトを設定（デフォルト80sを30sに短縮）
   const stripe = new Stripe(secretKey, { timeout: 30000 });
 
-  // P2-1 (review-loop 1): success_url / cancel_url は server-side allowlist のみ。
-  // Codex review (PR #89) の指摘: 本番のみ NEXT_PUBLIC_SITE_URL 必須にし、
-  // preview/dev では VERCEL_URL fallback (これも server-only env、改竄不可)
-  // を許容して checkout 不能を回避する。
+  // P2-1 (review-loop 2): success_url / cancel_url は server-side allowlist のみ。
+  // 本番では NEXT_PUBLIC_SITE_URL が**設定 AND parse 可能**であることを要求。
+  // malformed の場合に VERCEL_URL fallback すると preview deployment URL に
+  // pin されてしまうため、production は厳格に弾く。
+  // 非本番のみ VERCEL_URL fallback (server-only env、改竄不可) を許容。
   // Origin: ANY case で request.headers.get('origin') は使わない (P2-1 の核心)。
   const isProduction = process.env.NODE_ENV === "production";
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
   const vercelUrl = process.env.VERCEL_URL;
 
-  let origin: string | null = null;
-  for (const candidate of [siteUrl, vercelUrl ? `https://${vercelUrl}` : null]) {
-    if (!candidate) continue;
+  function tryOrigin(value: string | null | undefined): string | null {
+    if (!value) return null;
     try {
-      origin = new URL(candidate).origin;
-      break;
+      return new URL(value).origin;
     } catch {
-      // try next candidate
+      return null;
     }
   }
-  if (isProduction && !siteUrl) {
-    // In production we require explicit NEXT_PUBLIC_SITE_URL; refuse silent
-    // VERCEL_URL fallback to avoid mis-pinning to a preview deployment.
-    console.error(
-      "[stripe/checkout] NEXT_PUBLIC_SITE_URL must be set in production"
-    );
-    return NextResponse.json(
-      { error: "Server configuration error. Please contact support." },
-      { status: 503 }
-    );
-  }
-  if (!origin) {
-    console.error(
-      "[stripe/checkout] no valid origin (NEXT_PUBLIC_SITE_URL/VERCEL_URL both missing or malformed)"
-    );
-    return NextResponse.json(
-      { error: "Server configuration error. Please contact support." },
-      { status: 503 }
-    );
+
+  let origin: string | null = null;
+  if (isProduction) {
+    // Production: require valid NEXT_PUBLIC_SITE_URL, no fallback.
+    if (!siteUrl) {
+      console.error("[stripe/checkout] NEXT_PUBLIC_SITE_URL must be set in production");
+      return NextResponse.json(
+        { error: "Server configuration error. Please contact support." },
+        { status: 503 }
+      );
+    }
+    origin = tryOrigin(siteUrl);
+    if (!origin) {
+      console.error("[stripe/checkout] NEXT_PUBLIC_SITE_URL is malformed in production:", siteUrl);
+      return NextResponse.json(
+        { error: "Server configuration error. Please contact support." },
+        { status: 503 }
+      );
+    }
+  } else {
+    // Non-production: NEXT_PUBLIC_SITE_URL → VERCEL_URL fallback chain.
+    origin =
+      tryOrigin(siteUrl) ??
+      tryOrigin(vercelUrl ? `https://${vercelUrl}` : null);
+    if (!origin) {
+      console.error(
+        "[stripe/checkout] no valid origin in non-prod (NEXT_PUBLIC_SITE_URL/VERCEL_URL both missing or malformed)"
+      );
+      return NextResponse.json(
+        { error: "Server configuration error. Please contact support." },
+        { status: 503 }
+      );
+    }
   }
 
   const unitAmount = PRICES[plan][interval];
