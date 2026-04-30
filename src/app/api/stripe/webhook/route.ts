@@ -130,53 +130,112 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Webhook signature verification failed" }, { status: 400 });
   }
 
-  // P1-4: Idempotency guard (Codex audit 2026-04-30).
-  // Insert event.id with UNIQUE constraint BEFORE side effects so duplicate
-  // deliveries (Stripe retries / replay within signature timestamp window)
-  // are short-circuited atomically.
-  // Schema: supabase/migrations/013_security_hardening.sql.processed_stripe_events
+  // P1-4 (PR #89 → review-loop 1): 2-state idempotency ledger.
+  // Codex review (2026-04-30) の P1 指摘:
+  //   "INSERT-before-side-effect では updateUserPlan() throw 時に event が
+  //    永久 dedup → DB inconsistent。claim/processed の 2-state ledger に
+  //    すべき"
+  //
+  // 動作:
+  //   1) INSERT (event_id, status='processing') ON CONFLICT DO NOTHING
+  //   2) INSERT 成功 (= 初到達) → 通常処理 → 成功時 UPDATE status='processed'
+  //      side effect 失敗時は DELETE して Stripe に retry させる (500 return)
+  //   3) INSERT 衝突 (= 重複) → 既存 status check:
+  //        processed → 200 duplicate (即返却)
+  //        processing → 202 accepted (別 worker 処理中、Stripe は retry する)
+  //        failed → 再処理 (UPDATE status='processing' に戻して続行)
+  let dedupeAdmin: Awaited<ReturnType<typeof getSupabaseAdmin>>;
   try {
-    const dedupeAdmin = await getSupabaseAdmin();
-    const eventCustomerId =
-      typeof (event.data.object as { customer?: unknown })?.customer === "string"
-        ? ((event.data.object as { customer?: string }).customer ?? null)
-        : null;
+    dedupeAdmin = await getSupabaseAdmin();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[stripe/webhook] Admin client init failed:", message);
+    return NextResponse.json(
+      { error: "Idempotency guard failure" },
+      { status: 500 }
+    );
+  }
+
+  const eventCustomerId =
+    typeof (event.data.object as { customer?: unknown })?.customer === "string"
+      ? ((event.data.object as { customer?: string }).customer ?? null)
+      : null;
+
+  let claimedNew = false;
+  {
     const { error: insertError } = await dedupeAdmin
       .from("processed_stripe_events")
       .insert({
         event_id: event.id,
         event_type: event.type,
         customer_id: eventCustomerId,
+        status: "processing",
       });
-    if (insertError) {
-      // Postgres unique_violation = '23505'. Supabase JS surfaces that as
-      // PostgrestError with code '23505'.
+
+    if (!insertError) {
+      claimedNew = true;
+    } else {
+      // 23505 = postgres unique_violation
       const code = (insertError as { code?: string }).code;
-      if (code === "23505") {
-        console.info(
-          `[stripe/webhook] duplicate event ${event.id} (${event.type}) — skipping`
+      if (code !== "23505") {
+        console.error(
+          "[stripe/webhook] processed_stripe_events insert failed:",
+          insertError.message
         );
+        return NextResponse.json(
+          { error: "Idempotency ledger write failed" },
+          { status: 500 }
+        );
+      }
+
+      // Conflict path: inspect existing row and decide.
+      const { data: existing, error: selectError } = await dedupeAdmin
+        .from("processed_stripe_events")
+        .select("status")
+        .eq("event_id", event.id)
+        .maybeSingle();
+
+      if (selectError || !existing) {
+        console.error(
+          "[stripe/webhook] failed to read existing event row:",
+          selectError?.message
+        );
+        return NextResponse.json(
+          { error: "Idempotency ledger read failed" },
+          { status: 500 }
+        );
+      }
+
+      if (existing.status === "processed") {
         return NextResponse.json({ received: true, duplicate: true });
       }
-      // Non-conflict insert error → fail to make Stripe retry rather than
-      // silently swallow.
-      console.error(
-        "[stripe/webhook] processed_stripe_events insert failed:",
-        insertError.message
-      );
-      return NextResponse.json(
-        { error: "Idempotency ledger write failed" },
-        { status: 500 }
-      );
+      if (existing.status === "processing") {
+        // Another worker is processing — let Stripe retry later.
+        return NextResponse.json(
+          { received: true, status: "in_progress" },
+          { status: 202 }
+        );
+      }
+      // status === 'failed' → re-claim by flipping back to 'processing'.
+      const { error: reclaimError } = await dedupeAdmin
+        .from("processed_stripe_events")
+        .update({ status: "processing", last_error: null })
+        .eq("event_id", event.id)
+        .eq("status", "failed");
+      if (reclaimError) {
+        console.error(
+          "[stripe/webhook] failed to re-claim failed event:",
+          reclaimError.message
+        );
+        return NextResponse.json(
+          { error: "Idempotency ledger reclaim failed" },
+          { status: 500 }
+        );
+      }
+      claimedNew = true;
     }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[stripe/webhook] Idempotency guard error:", message);
-    return NextResponse.json(
-      { error: "Idempotency guard failure" },
-      { status: 500 }
-    );
   }
+  // claimedNew === true: we own this event; must mark processed/failed before return.
 
   try {
     switch (event.type) {
@@ -303,7 +362,36 @@ export async function POST(request: Request) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error(`[stripe/webhook] Error handling event ${event.type}:`, message);
+    // 2-state ledger: mark as 'failed' so Stripe's next retry can reclaim
+    // and re-run side effects. (013 + 014)
+    const { error: markFailedError } = await dedupeAdmin
+      .from("processed_stripe_events")
+      .update({ status: "failed", last_error: message })
+      .eq("event_id", event.id);
+    if (markFailedError) {
+      console.error(
+        "[stripe/webhook] failed to mark event failed:",
+        markFailedError.message
+      );
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+
+  // Success path: flip claim from 'processing' to 'processed'.
+  // Must happen AFTER all side effects committed.
+  if (claimedNew) {
+    const { error: markError } = await dedupeAdmin
+      .from("processed_stripe_events")
+      .update({ status: "processed" })
+      .eq("event_id", event.id);
+    if (markError) {
+      // Side effects already committed; we cannot 500 here (would force
+      // Stripe to retry and double-apply). Log and continue.
+      console.error(
+        "[stripe/webhook] failed to mark event processed:",
+        markError.message
+      );
+    }
   }
 
   return NextResponse.json({ received: true });

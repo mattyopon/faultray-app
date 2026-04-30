@@ -78,23 +78,40 @@ export async function POST(request: Request) {
   // APIPERF-05: Stripe API呼び出しにタイムアウトを設定（デフォルト80sを30sに短縮）
   const stripe = new Stripe(secretKey, { timeout: 30000 });
 
-  // P2-1: success_url / cancel_url は server-side allowlist のみ。以前は
-  // request.headers.get('origin') を最優先していたため、cross-origin な
-  // 認証済みリクエストで attacker domain への post-payment redirect が成立
-  // しうる Stripe Checkout Session を作れた。
+  // P2-1 (review-loop 1): success_url / cancel_url は server-side allowlist のみ。
+  // Codex review (PR #89) の指摘: 本番のみ NEXT_PUBLIC_SITE_URL 必須にし、
+  // preview/dev では VERCEL_URL fallback (これも server-only env、改竄不可)
+  // を許容して checkout 不能を回避する。
+  // Origin: ANY case で request.headers.get('origin') は使わない (P2-1 の核心)。
+  const isProduction = process.env.NODE_ENV === "production";
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-  if (!siteUrl) {
-    console.error("[stripe/checkout] NEXT_PUBLIC_SITE_URL not configured");
+  const vercelUrl = process.env.VERCEL_URL;
+
+  let origin: string | null = null;
+  for (const candidate of [siteUrl, vercelUrl ? `https://${vercelUrl}` : null]) {
+    if (!candidate) continue;
+    try {
+      origin = new URL(candidate).origin;
+      break;
+    } catch {
+      // try next candidate
+    }
+  }
+  if (isProduction && !siteUrl) {
+    // In production we require explicit NEXT_PUBLIC_SITE_URL; refuse silent
+    // VERCEL_URL fallback to avoid mis-pinning to a preview deployment.
+    console.error(
+      "[stripe/checkout] NEXT_PUBLIC_SITE_URL must be set in production"
+    );
     return NextResponse.json(
       { error: "Server configuration error. Please contact support." },
       { status: 503 }
     );
   }
-  let origin: string;
-  try {
-    origin = new URL(siteUrl).origin;
-  } catch {
-    console.error("[stripe/checkout] NEXT_PUBLIC_SITE_URL is not a valid URL:", siteUrl);
+  if (!origin) {
+    console.error(
+      "[stripe/checkout] no valid origin (NEXT_PUBLIC_SITE_URL/VERCEL_URL both missing or malformed)"
+    );
     return NextResponse.json(
       { error: "Server configuration error. Please contact support." },
       { status: 503 }

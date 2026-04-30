@@ -50,9 +50,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "This coupon has reached its usage limit" }, { status: 400 });
   }
 
-  // 3. クーポンのcurrent_usesを楽観的ロックでインクリメント（プロファイル更新の前に）
+  // 3. (review-loop 1, P1-B) Admin client config を increment より前に検証。
+  // Codex review (PR #89) の指摘: 検証を後に置くと service_role 不備時に
+  // current_uses だけ消費されて plan 更新が失敗する "burn-without-credit"
+  // が起きる。検証順序を入れ替え、設定不備は increment 前に弾く。
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.error("[coupon/redeem] service role not configured");
+    return NextResponse.json(
+      { error: "Server configuration error. Please contact support." },
+      { status: 503 }
+    );
+  }
+  const { createClient: createAdminClient } = await import("@supabase/supabase-js");
+  const admin = createAdminClient(supabaseUrl, serviceRoleKey);
+
+  // 4. クーポンのcurrent_usesを楽観的ロックでインクリメント。
   // WHERE current_uses = coupon.current_uses で競合を検出。
-  // プロファイル更新より先に行うことで、競合時にプランが無料アップグレードされるのを防ぐ。
   const { data: updatedCoupons, error: incrementError } = await supabase
     .from("coupons")
     .update({ current_uses: coupon.current_uses + 1 })
@@ -72,24 +87,13 @@ export async function POST(request: Request) {
     );
   }
 
-  // 4. profilesテーブルを更新（クーポン消費が確定した後）
+  // 5. profilesテーブルを更新（クーポン消費が確定した後、admin 経由）。
+  // 失敗した場合は increment を rollback。
   // P1-1: profiles.plan / trial_ends_at は migration 013 で user role の UPDATE
-  // 権限が剥奪されている (billing bypass 防止)。サービスロール経由で更新する。
+  // 権限が剥奪されている (billing bypass 防止)。
   const expiresAt = new Date(
     Date.now() + coupon.days * 24 * 60 * 60 * 1000
   ).toISOString();
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) {
-    console.error("[coupon/redeem] service role not configured");
-    return NextResponse.json(
-      { error: "Server configuration error. Please contact support." },
-      { status: 503 }
-    );
-  }
-  const { createClient: createAdminClient } = await import("@supabase/supabase-js");
-  const admin = createAdminClient(supabaseUrl, serviceRoleKey);
 
   const { error: profileError } = await admin
     .from("profiles")
@@ -97,7 +101,25 @@ export async function POST(request: Request) {
     .eq("id", user.id);
 
   if (profileError) {
+    // P1-B 補強: profile update が失敗したら current_uses を decrement で
+    // best-effort rollback。完璧ではない (race / DB error の二段失敗もある)
+    // が、follow-up issue で 1-RPC transaction 化するまでの暫定。
     console.error("[coupon/redeem] profile update failed:", profileError.message);
+    const { error: rollbackError } = await supabase
+      .from("coupons")
+      .update({ current_uses: coupon.current_uses })
+      .eq("id", coupon.id)
+      .eq("current_uses", coupon.current_uses + 1);
+    if (rollbackError) {
+      console.error(
+        "[coupon/redeem] BURN-WITHOUT-CREDIT: rollback also failed for coupon",
+        coupon.id,
+        "user",
+        user.id,
+        "error:",
+        rollbackError.message
+      );
+    }
     return NextResponse.json({ error: "Failed to update profile" }, { status: 500 });
   }
 
