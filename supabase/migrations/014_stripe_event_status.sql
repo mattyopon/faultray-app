@@ -14,10 +14,11 @@
 --   - webhook 受信時: INSERT (event_id, status='processing') ON CONFLICT DO NOTHING
 --     - INSERT 成功 (= 新規 event) → 通常処理 → 成功時 UPDATE status='processed'
 --     - INSERT 衝突 (= 重複) → 既存 status を check:
---         processed → 200 duplicate
---         processing → 別 worker が処理中、202 accepted
+--         processed  → 200 duplicate (Stripe は retry を止める)
+--         processing → 503 (worker crash 残留時に Stripe retry が止まらないように)
 --         failed     → 再処理 (UPDATE status='processing')
---   - 失敗時: row を DELETE (Stripe が retry できる)
+--   - side effect 失敗時: UPDATE status='failed', last_error 記録 → 500 return
+--     (Stripe retry が来た時に上記 'failed' branch で reclaim される)
 --   - 既存 row は status='processed' 扱い (既に side effect 完了している前提)
 -- ----------------------------------------------------------------------------
 

@@ -139,11 +139,14 @@ export async function POST(request: Request) {
   // 動作:
   //   1) INSERT (event_id, status='processing') ON CONFLICT DO NOTHING
   //   2) INSERT 成功 (= 初到達) → 通常処理 → 成功時 UPDATE status='processed'
-  //      side effect 失敗時は DELETE して Stripe に retry させる (500 return)
+  //      side effect 失敗時は UPDATE status='failed' して Stripe の retry で
+  //      reclaim させる (500 return)
   //   3) INSERT 衝突 (= 重複) → 既存 status check:
-  //        processed → 200 duplicate (即返却)
-  //        processing → 202 accepted (別 worker 処理中、Stripe は retry する)
-  //        failed → 再処理 (UPDATE status='processing' に戻して続行)
+  //        processed  → 200 duplicate (即返却)
+  //        processing → 503 (Stripe retry 駆動)。worker crash で永久 'processing'
+  //                     残留時に 2xx を返すと Stripe が retry を停止し billing が
+  //                     永久未適用になる (Codex P1, Devin BUG)。
+  //        failed     → 再処理 (UPDATE status='processing' に戻して続行)
   let dedupeAdmin: Awaited<ReturnType<typeof getSupabaseAdmin>>;
   try {
     dedupeAdmin = await getSupabaseAdmin();
@@ -210,10 +213,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ received: true, duplicate: true });
       }
       if (existing.status === "processing") {
-        // Another worker is processing — let Stripe retry later.
+        // Another worker is processing — return non-2xx so Stripe retries.
+        // Stripe treats any 2xx as successful delivery and stops automatic
+        // retries. If the original worker crashed/timed out before flipping
+        // status, the row stays 'processing' forever and side effects never
+        // apply unless we keep Stripe retrying. (Codex P1 / Devin BUG)
         return NextResponse.json(
-          { received: true, status: "in_progress" },
-          { status: 202 }
+          { received: false, status: "in_progress" },
+          { status: 503 }
         );
       }
       // status === 'failed' → re-claim by flipping back to 'processing'.
@@ -237,10 +244,13 @@ export async function POST(request: Request) {
         );
       }
       if (!reclaimed || reclaimed.length === 0) {
-        // Another worker reclaimed in the meantime — treat as in-progress.
+        // Another worker reclaimed in the meantime — return non-2xx so Stripe
+        // retries (same reasoning as the 'processing' branch above). The
+        // other worker may also crash before flipping status, so we cannot
+        // assume the event will be processed without further retries.
         return NextResponse.json(
-          { received: true, status: "in_progress" },
-          { status: 202 }
+          { received: false, status: "in_progress" },
+          { status: 503 }
         );
       }
       claimedNew = true;

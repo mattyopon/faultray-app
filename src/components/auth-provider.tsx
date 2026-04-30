@@ -51,17 +51,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq("id", uid)
         .single();
       if (data?.plan) {
-        // trial_ends_at が過去の場合は free にフォールバック
+        // trial_ends_at が過去の場合は in-memory で free にフォールバック。
+        // DB 側の `plan` 列は migration 013 で authenticated に対する UPDATE が
+        // revoke されている (billing-bypass 防止) ため、ここから `update({plan})`
+        // を発行すると silent fail し、ユーザー体験は free だが DB は trial 値の
+        // ままドリフトする。DB の修正は server-side cron `/api/cron/trial-expiry`
+        // が SECURITY DEFINER 関数 `downgrade_expired_trials()` で行う。
         const isExpired =
           data.trial_ends_at != null &&
           new Date(data.trial_ends_at as string) < new Date();
         if (isExpired && data.plan !== "free") {
           setPlan("free");
-          // 次回読み込み高速化のため DB も更新
-          await supabase
-            .from("profiles")
-            .update({ plan: "free" })
-            .eq("id", uid);
         } else {
           setPlan((data.plan as PlanTier) || "free");
         }

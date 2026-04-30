@@ -78,13 +78,24 @@ export async function POST(request: Request) {
   // APIPERF-05: Stripe API呼び出しにタイムアウトを設定（デフォルト80sを30sに短縮）
   const stripe = new Stripe(secretKey, { timeout: 30000 });
 
-  // P2-1 (review-loop 2): success_url / cancel_url は server-side allowlist のみ。
+  // P2-1 (review-loop 2 + 3): success_url / cancel_url は server-side allowlist のみ。
   // 本番では NEXT_PUBLIC_SITE_URL が**設定 AND parse 可能**であることを要求。
   // malformed の場合に VERCEL_URL fallback すると preview deployment URL に
   // pin されてしまうため、production は厳格に弾く。
   // 非本番のみ VERCEL_URL fallback (server-only env、改竄不可) を許容。
   // Origin: ANY case で request.headers.get('origin') は使わない (P2-1 の核心)。
-  const isProduction = process.env.NODE_ENV === "production";
+  //
+  // NODE_ENV ではなく VERCEL_ENV で本番判定する (Codex P2): preview / staging
+  // deployment は Next.js build 時に NODE_ENV='production' になるため、
+  // NODE_ENV だけで isProduction 判定すると preview でも production 厳格パスを
+  // 通り、NEXT_PUBLIC_SITE_URL 未設定の preview/staging で 503 になる。
+  // VERCEL_ENV は production / preview / development のいずれかで明示的に区別可能。
+  // VERCEL_ENV 未設定 (Vercel 外で動かしている self-host 等) では、過去互換のため
+  // NODE_ENV='production' を本番扱いする。
+  const vercelEnv = process.env.VERCEL_ENV;
+  const isProduction = vercelEnv
+    ? vercelEnv === "production"
+    : process.env.NODE_ENV === "production";
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
   const vercelUrl = process.env.VERCEL_URL;
 

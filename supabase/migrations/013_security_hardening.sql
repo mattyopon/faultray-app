@@ -151,10 +151,17 @@ as $$
   where user_id = auth.uid() and role in ('owner', 'admin')
 $$;
 
-revoke execute on function public.user_team_ids()        from public, anon;
-revoke execute on function public.user_admin_team_ids()  from public, anon;
-grant  execute on function public.user_team_ids()        to authenticated;
-grant  execute on function public.user_admin_team_ids()  to authenticated;
+revoke execute on function public.user_team_ids()        from public;
+revoke execute on function public.user_admin_team_ids()  from public;
+-- anon role must retain EXECUTE so that RLS policies referencing these
+-- functions (teams / team_members / projects / simulation_runs / usage /
+-- billing_events) can be evaluated for unauthenticated requests. Without it,
+-- a `select * from teams` from anon raises `permission denied for function
+-- user_team_ids` before RLS can silently filter to 0 rows. SECURITY DEFINER
+-- + auth.uid() (NULL for anon) → the function returns an empty set, so
+-- granting to anon does not enable enumeration.
+grant execute on function public.user_team_ids()        to authenticated, anon;
+grant execute on function public.user_admin_team_ids()  to authenticated, anon;
 
 -- Step 2: re-create all policies that referenced the (uuid) signature.
 -- (Mirrors 006_fix_rls_recursion.sql.)
