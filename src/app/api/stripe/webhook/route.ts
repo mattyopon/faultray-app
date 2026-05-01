@@ -258,38 +258,57 @@ export async function POST(request: Request) {
             { status: 503 }
           );
         }
-      }
-      // status === 'failed' → re-claim by flipping back to 'processing'.
-      // (review-loop 2, P1) .select() で affected row 数を確認し、
-      // 同時 retry が 2件 'failed' を見て両方 reclaim を試みた race を防ぐ。
-      // 1件だけが update できる (もう1件は 0 rows = 別 worker が先に reclaim 済)。
-      const { data: reclaimed, error: reclaimError } = await dedupeAdmin
-        .from("processed_stripe_events")
-        .update({ status: "processing", last_error: null })
-        .eq("event_id", event.id)
-        .eq("status", "failed")
-        .select("event_id");
-      if (reclaimError) {
+      } else if (existing.status === "failed") {
+        // status === 'failed' → re-claim by flipping back to 'processing'.
+        // (review-loop 2, P1) .select() で affected row 数を確認し、
+        // 同時 retry が 2件 'failed' を見て両方 reclaim を試みた race を防ぐ。
+        // 1件だけが update できる (もう1件は 0 rows = 別 worker が先に reclaim 済)。
+        //
+        // (review-loop 5, CodeRabbit Major + Codex P1) この block を else if で
+        // 囲むのが必須。'processing' branch の stale takeover が成功した場合に
+        // ここに fall through すると、`.eq("status", "failed")` が 0 rows match
+        // (実際は既に 'processing' になっている) → 503 return → 取得した claim を
+        // 投げ捨てて side effect が永久未実行になる、という重大バグを防ぐ。
+        const { data: reclaimed, error: reclaimError } = await dedupeAdmin
+          .from("processed_stripe_events")
+          .update({ status: "processing", last_error: null })
+          .eq("event_id", event.id)
+          .eq("status", "failed")
+          .select("event_id");
+        if (reclaimError) {
+          console.error(
+            "[stripe/webhook] failed to re-claim failed event:",
+            reclaimError.message
+          );
+          return NextResponse.json(
+            { error: "Idempotency ledger reclaim failed" },
+            { status: 500 }
+          );
+        }
+        if (!reclaimed || reclaimed.length === 0) {
+          // Another worker reclaimed in the meantime — return non-2xx so Stripe
+          // retries (same reasoning as the 'processing' branch above). The
+          // other worker may also crash before flipping status, so we cannot
+          // assume the event will be processed without further retries.
+          return NextResponse.json(
+            { received: false, status: "in_progress" },
+            { status: 503 }
+          );
+        }
+        claimedNew = true;
+      } else {
+        // Defensive: unknown status value should not happen given the CHECK
+        // constraint on processed_stripe_events.status, but if a future
+        // migration adds a new state we want explicit failure rather than
+        // silent skip.
         console.error(
-          "[stripe/webhook] failed to re-claim failed event:",
-          reclaimError.message
+          `[stripe/webhook] unexpected processed_stripe_events.status=${existing.status} for event ${event.id}`
         );
         return NextResponse.json(
-          { error: "Idempotency ledger reclaim failed" },
+          { error: "Idempotency ledger unknown state" },
           { status: 500 }
         );
       }
-      if (!reclaimed || reclaimed.length === 0) {
-        // Another worker reclaimed in the meantime — return non-2xx so Stripe
-        // retries (same reasoning as the 'processing' branch above). The
-        // other worker may also crash before flipping status, so we cannot
-        // assume the event will be processed without further retries.
-        return NextResponse.json(
-          { received: false, status: "in_progress" },
-          { status: 503 }
-        );
-      }
-      claimedNew = true;
     }
   }
   // claimedNew === true: we own this event; must mark processed/failed before return.
