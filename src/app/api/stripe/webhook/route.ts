@@ -194,7 +194,7 @@ export async function POST(request: Request) {
       // Conflict path: inspect existing row and decide.
       const { data: existing, error: selectError } = await dedupeAdmin
         .from("processed_stripe_events")
-        .select("status")
+        .select("status, updated_at")
         .eq("event_id", event.id)
         .maybeSingle();
 
@@ -213,15 +213,51 @@ export async function POST(request: Request) {
         return NextResponse.json({ received: true, duplicate: true });
       }
       if (existing.status === "processing") {
-        // Another worker is processing — return non-2xx so Stripe retries.
-        // Stripe treats any 2xx as successful delivery and stops automatic
-        // retries. If the original worker crashed/timed out before flipping
-        // status, the row stays 'processing' forever and side effects never
-        // apply unless we keep Stripe retrying. (Codex P1 / Devin BUG)
-        return NextResponse.json(
-          { received: false, status: "in_progress" },
-          { status: 503 }
-        );
+        // Stale-lock takeover (review-loop 3, CodeRabbit Major + Codex P1):
+        // worker crash / serverless timeout で 'processing' 残留時、503 だけ
+        // 返していると Stripe retry が無限に空回りして event は永久 stuck。
+        // updated_at が STALE_PROCESSING_MS 以上経過していれば前 worker は
+        // 死んだとみなし、現 worker が reclaim する (status='processing' のまま
+        // updated_at だけ bump して所有権を奪う)。
+        // 同条件 + .eq("status", "processing") + .lt("updated_at", cutoff) で
+        // race 安全 (2 workers が同時に試みても 1 件しか update できない)。
+        const STALE_PROCESSING_MS = 5 * 60_000; // 5 minutes
+        const staleCutoff = new Date(
+          Date.now() - STALE_PROCESSING_MS
+        ).toISOString();
+        const { data: reclaimedStale, error: reclaimStaleError } =
+          await dedupeAdmin
+            .from("processed_stripe_events")
+            .update({ status: "processing", last_error: null })
+            .eq("event_id", event.id)
+            .eq("status", "processing")
+            .lt("updated_at", staleCutoff)
+            .select("event_id");
+        if (reclaimStaleError) {
+          console.error(
+            "[stripe/webhook] stale 'processing' reclaim failed:",
+            reclaimStaleError.message
+          );
+          return NextResponse.json(
+            { error: "Idempotency ledger stale-reclaim failed" },
+            { status: 500 }
+          );
+        }
+        if (reclaimedStale && reclaimedStale.length > 0) {
+          console.warn(
+            `[stripe/webhook] reclaimed stale 'processing' event ${event.id} ` +
+              `(>${STALE_PROCESSING_MS / 60_000}min old)`
+          );
+          claimedNew = true;
+        } else {
+          // Active worker is still within the freshness window — let Stripe
+          // retry. 503 keeps Stripe retrying (2xx would stop retries; see
+          // Codex P1 / Devin BUG fixed in review-loop 3 commit 3cae293).
+          return NextResponse.json(
+            { received: false, status: "in_progress" },
+            { status: 503 }
+          );
+        }
       }
       // status === 'failed' → re-claim by flipping back to 'processing'.
       // (review-loop 2, P1) .select() で affected row 数を確認し、
