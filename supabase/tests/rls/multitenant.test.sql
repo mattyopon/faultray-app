@@ -20,9 +20,10 @@
 --                         (#70 P1-7 → migration 013 で fix 済を assert)
 --   - org_members INSERT: org owner self-bootstrap (role='owner', status='active', user_id=self)
 --                         は許可される (migration 013 line 110-122)
---   - tasks: 自org は CRUD 可能、cross-org は block
---   - TODO (#70 finding 2): tasks INSERT に WITH CHECK (created_by=auth.uid()) が無く、
---                            member B が created_by を偽装できる。fix されたら todo_end を外す
+--   - tasks: 自org は CRUD 可能、cross-org は block。created_by は auth.uid() に固定
+--           (#70 finding 2 → migration 015 で fix 済を assert)
+--   - 関連 fix: migration 015 で org_members の self-referential RLS recursion を
+--               SECURITY DEFINER 関数経由に書き換えて解消 (#70 finding 1)
 --
 -- 実行方法 (ローカル Supabase):
 --   supabase db reset  # migrations 全適用
@@ -528,7 +529,7 @@ select throws_ok(
 
 -- ============================================================
 -- #73: organizations / org_members / tasks RLS coverage
--- (migration 009 + 013 を対象。011 audit_logs / 010 apm は別 issue)
+-- (migration 009 + 013 + 015 を対象。011 audit_logs / 010 apm は別 issue)
 -- ============================================================
 
 -- ────────────────────────────────────────────────────────────
@@ -783,24 +784,18 @@ select throws_ok(
   'tasks: User A cannot INSERT into org_q (cross-tenant blocked by RLS)'
 );
 
--- TODO: tasks INSERT は WITH CHECK (created_by = auth.uid()) を持たないため、
---   member B は created_by を A に偽装できる。#70 finding 2 で fix 予定 (FOR INSERT
---   policy 追加)。fix 後は throws_ok に置き換え、todo_start/end を外す。
--- pgTAP: todo_start で囲んだ次の N 件は TAP の TODO directive 付きで報告される。
---   失敗してもサスイートは成功扱い。fix 後に成功しても通る (todo_unexpected ok)。
+-- tasks INSERT は migration 015 で WITH CHECK (created_by = auth.uid()) が
+-- 追加されたので、member B が created_by を A に偽装する INSERT は block される。
+-- (#70 finding 2 を 015 で fix 済 → 恒常 regression-lock)
 select test_as_user(:'user_b_id'::uuid);
-
-select todo_start('#70 finding 2: tasks INSERT lacks WITH CHECK (created_by = auth.uid())');
 
 select throws_ok(
   $$ insert into public.tasks (org_id, title, created_by)
      values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
              'forged authorship', '11111111-1111-1111-1111-111111111111'::uuid) $$,
   NULL::text, NULL::text,
-  'tasks: member B should not be able to forge created_by (currently allowed — fix expected in #70)'
+  'tasks: member B cannot forge created_by to another user (#70 finding 2 fixed in 015)'
 );
-
-select todo_end();
 
 -- ────────────────────────────────────────────────────────────
 -- anon: org tables も全て不可視 + INSERT block

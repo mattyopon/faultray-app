@@ -3,7 +3,7 @@
 **Legacy 7 テーブル** (#28):
 `profiles` / `teams` / `team_members` / `projects` / `simulation_runs` / `usage` / `billing_events`
 
-**Org/タスク 3 テーブル** (#73 で追加, migration 009 + 013):
+**Org/タスク 3 テーブル** (#73 で追加, migration 009 + 013 + 015):
 `organizations` / `org_members` / `tasks`
 
 これら 10 テーブルの Row Level Security ポリシーを **pgTAP** で assert する。
@@ -16,7 +16,8 @@
 - `anon` role は何も見えないこと / 何も書き込めないこと
 - `usage` / `billing_events` は authenticated role から書込不能 (service-role 経由のみ)
 - migration 013 で fix 済の P1-7 (org_members invite role/status 制約) が regression しないこと
-- `tasks` の `created_by` 偽装 (#70 finding 2, 未 fix) は `todo_start/todo_end` でマークし、fix 後に通る
+- migration 015 で fix 済の #70 finding 2 (`tasks.created_by` 偽装) が regression しないこと
+- migration 015 で解消した self-referential recursion (#70 finding 1) のため、`organizations` / `org_members` SELECT が fresh DB でも実行できること (recursion で死なないこと)
 
 ## ローカル実行
 
@@ -54,10 +55,10 @@ psql -h 127.0.0.1 -p 54322 -U postgres -d postgres \
 | Task Q1 | `dddddddd-dddd-...` |
 | Org Bootstrap (self-bootstrap test 用) | `eeeeeeee-eeee-...` |
 
-## 既知の scope 外 / TODO
+## 既知の scope 外
 
 - migration 010 (`apm_*`) と 011 (`audit_logs`) の RLS は別 Issue で追跡
 - migration 013 で `processed_stripe_events` が追加されたが service_role only なので本テスト範囲外
 - Supabase 本番の `auth.uid()` 実装と CI スタブは挙動一致しているが、新 feature 使用時は再確認要
 - pgTAP の `throws_ok` は PostgreSQL error code での比較。RLS の DELETE/UPDATE は `42501` ではなく silent filter されるため、件数確認で検証している
-- `tasks` の `created_by` 偽装 (#70 finding 2) は `todo_start/todo_end` で囲んだ TODO ブロックとして残している。`#70` の hardening migration が来たら `todo_*` を外して `throws_ok` を恒常化する
+- #70 finding 3-5 (`auth.users` への FK の `ON DELETE` 未指定) はスキーマ変更で別 PR/Issue で扱う
