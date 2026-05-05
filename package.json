@@ -17,7 +17,7 @@
     "quality": "npm run lint && npm run test"
   },
   "dependencies": {
-    "@rolldown/binding-linux-x64-gnu": "^1.0.0-rc.12",
+    "@rolldown/binding-linux-x64-gnu": "^1.0.0-rc.18",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.100.1",
     "clsx": "^2.1.1",
