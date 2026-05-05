@@ -40,13 +40,16 @@ begin;
 create extension if not exists pgtap;
 
 -- ---------- テストプラン ----------
--- legacy 7 テーブル: 40 assertion (#28)
--- org/tasks 拡張    : 33 assertion (#73)
---   organizations  :  8  (SELECT × 6 + INSERT lives/throws × 2)
---   org_members    : 12  (SELECT × 6 + INSERT lives × 2 + INSERT throws × 4)
---   tasks          :  9  (SELECT × 6 + INSERT lives × 2 + TODO forgery × 1)
---   anon           :  4  (SELECT × 3 + INSERT throw × 1)
-select plan(73);
+-- legacy 7 テーブル        : 40 assertion (#28)
+-- org/tasks 拡張           : 33 assertion (#73)
+--   organizations          :  8  (SELECT × 6 + INSERT lives/throws × 2)
+--   org_members            : 12  (SELECT × 6 + INSERT lives × 2 + INSERT throws × 4)
+--   tasks                  :  9  (SELECT × 6 + INSERT lives × 2 + TODO forgery × 1)
+--   anon                   :  4  (SELECT × 3 + INSERT throw × 1)
+-- contact_requests/coupons :  7 assertion (#72)
+--   contact_requests       :  4  (anon INSERT lives + SELECT 0row, auth INSERT lives + SELECT 0row)
+--   coupons                :  3  (auth SELECT 1row, anon SELECT 0row, auth INSERT throws)
+select plan(80);
 
 -- ============================================================
 -- Setup: auth.users を直接 INSERT して 3 ユーザー + 2 team を作成
@@ -825,6 +828,76 @@ select throws_ok(
      values ('Anon org', '11111111-1111-1111-1111-111111111111'::uuid) $$,
   NULL::text, NULL::text,
   'anon: INSERT into organizations blocked'
+);
+
+-- ============================================================
+-- #72 contact_requests / coupons (schema-drift fix, migration 016)
+-- ============================================================
+-- production faithful な RLS 設計の regression-lock:
+--   contact_requests : INSERT は誰でも可、SELECT 等は policy 不在 → RLS deny
+--   coupons          : SELECT は authenticated のみ、INSERT 等は RLS deny
+
+-- ── contact_requests: anon が INSERT 可、SELECT 不可 ──
+select test_as_anon();
+
+select lives_ok(
+  $$ insert into public.contact_requests (company, name, email, company_size, message)
+     values ('Acme', 'Anon Sender', 'anon@test.local', '11-50', 'inquiry from public form') $$,
+  'contact_requests: anon CAN INSERT (public form path)'
+);
+
+select is(
+  (select count(*)::int from public.contact_requests),
+  0,
+  'contact_requests: anon SELECT returns 0 rows (no SELECT policy)'
+);
+
+-- ── contact_requests: authenticated も INSERT 可、SELECT 不可 ──
+select test_as_user(:'user_a_id'::uuid);
+
+select lives_ok(
+  $$ insert into public.contact_requests (company, name, email, company_size, message)
+     values ('Acme2', 'User A', 'a@test.local', '50-200', 'logged-in user inquiry') $$,
+  'contact_requests: authenticated CAN INSERT'
+);
+
+select is(
+  (select count(*)::int from public.contact_requests),
+  0,
+  'contact_requests: authenticated SELECT returns 0 rows (no SELECT policy)'
+);
+
+-- ── coupons: service_role でテスト用クーポン投入 (RLS bypass) ──
+select test_as_service_role();
+insert into public.coupons (code, tier, days, max_uses) values
+  ('TESTCODE72', 'pro', 30, 5);
+
+-- ── coupons: authenticated は SELECT 可 ──
+select test_as_user(:'user_a_id'::uuid);
+
+select is(
+  (select count(*)::int from public.coupons where code = 'TESTCODE72'),
+  1,
+  'coupons: authenticated CAN SELECT (auth.role()=authenticated policy matches)'
+);
+
+-- ── coupons: anon は SELECT 0 行 ──
+select test_as_anon();
+
+select is(
+  (select count(*)::int from public.coupons),
+  0,
+  'coupons: anon SELECT returns 0 rows (auth.role()!=authenticated)'
+);
+
+-- ── coupons: authenticated は INSERT block (INSERT policy 不在 → RLS deny) ──
+select test_as_user(:'user_a_id'::uuid);
+
+select throws_ok(
+  $$ insert into public.coupons (code, tier, days, max_uses)
+     values ('FORGED72', 'pro', 365, 0) $$,
+  NULL::text, NULL::text,
+  'coupons: authenticated CANNOT INSERT (no INSERT policy → RLS deny)'
 );
 
 -- ============================================================
