@@ -150,10 +150,37 @@ export async function POST(request: Request) {
   const hourBucket = Math.floor(Date.now() / 3600000);
   const idempotencyKey = `checkout-${userId}-${plan}-${interval}-${hourBucket}`;
 
+  // #79 PR #102 Codex P1-A: 既存 stripe_customer_id を再利用する。これを渡さないと
+  // Stripe は repeat checkout のたびに新規 customer を作成 → webhook の bootstrap で
+  // profiles.stripe_customer_id ≠ 新 customer になり customer_mismatch で plan 更新が
+  // skip される (legitimate な resubscribe / upgrade flow が silent に壊れる)。
+  let existingCustomerId: string | null = null;
+  const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supaServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (supaUrl && supaServiceKey) {
+    try {
+      const { createClient: createAdminClient } = await import("@supabase/supabase-js");
+      const adminSb = createAdminClient(supaUrl, supaServiceKey);
+      const { data: profile } = await adminSb
+        .from("profiles")
+        .select("stripe_customer_id")
+        .eq("id", userId)
+        .maybeSingle();
+      existingCustomerId = (profile?.stripe_customer_id as string | null) ?? null;
+    } catch (lookupErr) {
+      // service_role 経路の DB lookup が落ちても checkout は通したい (decay-friendly)。
+      // lookup 失敗 = 新規 customer 作成 → bootstrap で persist する path に fall back。
+      console.error("[stripe/checkout] profile lookup failed (continuing without customer reuse):",
+        lookupErr instanceof Error ? lookupErr.message : "unknown error");
+    }
+  }
+
   try {
     const session = await stripe.checkout.sessions.create(
       {
         mode: "subscription",
+        // #79: 既存 customer を再利用 (repeat checkout で customer_mismatch を防ぐ)
+        ...(existingCustomerId ? { customer: existingCustomerId } : {}),
         // #21: Checkout URL共有リスク軽減 — セッションを30分で失効させる
         // Stripeのデフォルトは24時間。URLが共有・漏洩した場合のリスクを最小化する。
         expires_at: Math.floor(Date.now() / 1000) + 1800,
