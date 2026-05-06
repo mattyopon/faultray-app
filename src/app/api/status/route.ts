@@ -39,11 +39,16 @@ export async function GET(request: Request) {
     return NextResponse.json(await probeAll());
   }
 
-  // 未認証 (公開): overall status と timestamp のみ。per-vendor latency / config
-  // は隠す。overall を出すために probe は走らせる必要がある。
+  // 未認証 (公開): 既存 contract (overall / services / checked_at) は維持し、
+  // services の各要素から per-vendor latency_ms / note を削除して
+  // dependency mapping / timing abuse を防ぐ。external dashboard 等の既存
+  // 利用者は services 配列の name/status だけが見えれば壊れない。
+  // (review-loop 2, P2): 完全に shape を変えると外部 monitor が即時 break するため
+  // strip 方式を取る。
   const result = await probeAll();
   return NextResponse.json({
     overall: result.overall,
+    services: result.services.map((s) => ({ name: s.name, status: s.status })),
     checked_at: result.checked_at,
   });
 }

@@ -111,6 +111,15 @@ const nextConfig: NextConfig = {
             key: "Access-Control-Allow-Headers",
             value: "Content-Type, Authorization",
           },
+          // (#105 review-loop 2, P2-B): cookie-authenticated routes (/api/status
+          // ?detailed=true, /api/account/*, etc.) が cross-origin から呼ばれる
+          // ケースに備え credentials を許可。Access-Control-Allow-Origin は
+          // ALLOWED_ORIGIN single value を返しているため `*` との衝突なし
+          // (`*` + credentials は CORS spec 違反)。
+          {
+            key: "Access-Control-Allow-Credentials",
+            value: "true",
+          },
         ],
       },
     ];
