@@ -154,25 +154,44 @@ export async function POST(request: Request) {
   // Stripe は repeat checkout のたびに新規 customer を作成 → webhook の bootstrap で
   // profiles.stripe_customer_id ≠ 新 customer になり customer_mismatch で plan 更新が
   // skip される (legitimate な resubscribe / upgrade flow が silent に壊れる)。
-  let existingCustomerId: string | null = null;
+  //
+  // (Codex review-loop 2 P1-B2): lookup 失敗を silent fall-through させると、課金は
+  // 通って plan 更新だけ落ちる "burn-without-credit" を再現してしまう。lookup が
+  // できない = customer reuse 判定ができない = checkout を進めるべきでない。503 で
+  // retry させ、ユーザーに明示的に再試行を促す。
   const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supaServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (supaUrl && supaServiceKey) {
-    try {
-      const { createClient: createAdminClient } = await import("@supabase/supabase-js");
-      const adminSb = createAdminClient(supaUrl, supaServiceKey);
-      const { data: profile } = await adminSb
-        .from("profiles")
-        .select("stripe_customer_id")
-        .eq("id", userId)
-        .maybeSingle();
-      existingCustomerId = (profile?.stripe_customer_id as string | null) ?? null;
-    } catch (lookupErr) {
-      // service_role 経路の DB lookup が落ちても checkout は通したい (decay-friendly)。
-      // lookup 失敗 = 新規 customer 作成 → bootstrap で persist する path に fall back。
-      console.error("[stripe/checkout] profile lookup failed (continuing without customer reuse):",
-        lookupErr instanceof Error ? lookupErr.message : "unknown error");
+  if (!supaUrl || !supaServiceKey) {
+    console.error("[stripe/checkout] Supabase admin not configured — refusing checkout to avoid customer_mismatch drop");
+    return NextResponse.json(
+      { error: "Server configuration error. Please contact support." },
+      { status: 503 }
+    );
+  }
+  let existingCustomerId: string | null = null;
+  try {
+    const { createClient: createAdminClient } = await import("@supabase/supabase-js");
+    const adminSb = createAdminClient(supaUrl, supaServiceKey);
+    const { data: profile, error: lookupError } = await adminSb
+      .from("profiles")
+      .select("stripe_customer_id")
+      .eq("id", userId)
+      .maybeSingle();
+    if (lookupError) {
+      throw new Error(lookupError.message);
     }
+    existingCustomerId = (profile?.stripe_customer_id as string | null) ?? null;
+  } catch (lookupErr) {
+    // 503 で retry させる: silent fall-through (= 新規 customer 作成 → webhook
+    // bootstrap で customer_mismatch → 200 ack drop) を排除する。
+    console.error(
+      "[stripe/checkout] profile lookup failed — refusing checkout:",
+      lookupErr instanceof Error ? lookupErr.message : "unknown error"
+    );
+    return NextResponse.json(
+      { error: "Service temporarily unavailable. Please try again in a moment." },
+      { status: 503 }
+    );
   }
 
   try {
