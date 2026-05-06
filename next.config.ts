@@ -56,8 +56,21 @@ function buildCsp(): string {
 
 const nextConfig: NextConfig = {
   async headers() {
+    // #88 (P3-4): CORS allowlist は server-only env で管理する。
+    //   - ALLOWED_ORIGIN  : single origin (legacy / simple deployments)
+    //   - ALLOWED_ORIGINS : comma-separated, 多重 origin (preview/staging/production)
+    // どちらも server-only。fallback として NEXT_PUBLIC_SITE_URL を残すが、これは
+    // bundle に露出する public env なので server-only env が設定されていれば優先する。
+    // 最終 fallback は production canonical ("https://faultray.com") のみ。
+    const allowedOriginsRaw =
+      process.env.ALLOWED_ORIGINS ?? process.env.ALLOWED_ORIGIN ?? null;
+    const allowedOriginsList = allowedOriginsRaw
+      ? allowedOriginsRaw.split(",").map((s) => s.trim()).filter(Boolean)
+      : null;
     const allowedOrigin =
-      process.env.NEXT_PUBLIC_SITE_URL || "https://faultray.com";
+      allowedOriginsList && allowedOriginsList.length > 0
+        ? allowedOriginsList.join(", ")
+        : process.env.NEXT_PUBLIC_SITE_URL || "https://faultray.com";
 
     return [
       {
