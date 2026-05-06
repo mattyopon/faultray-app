@@ -453,13 +453,27 @@ export async function POST(request: Request) {
 
       // ── Subscription deleted: cancel or non-renewal ───────────────────────
       // #79 P1: customer_id source-of-truth で resolve。metadata.user_id は信用しない。
+      // (Codex review-loop 3 P2): /api/account/delete は profile を先に消してから
+      // Stripe subscriptions を cancel する設計のため、その flow の deleted event は
+      // profile が存在しない状態で到達する (= 通常 flow)。500 retry を 3 日間続ける
+      // のは ops noise なので、**deleted event のみ** profile not mapped を 200 ack
+      // で受容する。攻撃者目線では既に削除済 customer の deleted event を発火させても
+      // 何も起こせないため、リスクなし。
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = subscription.customer as string;
 
-        await updateUserByCustomerId(customerId, "free", "canceled");
+        const userId = await resolveUserByCustomerId(customerId);
+        if (!userId) {
+          console.info(
+            `[stripe/webhook] customer.subscription.deleted: customer=${customerId} ` +
+              `not mapped — likely account/delete flow, ack-ing without mutation.`
+          );
+          break;
+        }
+        await updateUserPlan(userId, "free", "canceled");
         console.info(
-          `[stripe/webhook] customer.subscription.deleted: customer=${customerId}`
+          `[stripe/webhook] customer.subscription.deleted: customer=${customerId} user=${userId}`
         );
         break;
       }
