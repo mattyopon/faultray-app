@@ -73,6 +73,21 @@ function checkCsrf(request: Request): NextResponse | null {
     }
   }
 
+  // (#88 PR #105 review-loop 3, P2-B): server-only ALLOWED_ORIGIN(S) で CORS を
+  // 拡張した場合、CSRF allowlist にも同じ origin を追加しないと credentialed
+  // cross-origin call が 403 で弾かれる。CORS と CSRF の trust boundary を揃える。
+  const corsAllowed =
+    process.env.ALLOWED_ORIGINS ?? process.env.ALLOWED_ORIGIN ?? null;
+  if (corsAllowed) {
+    for (const raw of corsAllowed.split(",").map((s) => s.trim()).filter(Boolean)) {
+      try {
+        allowed.add(new URL(raw).origin);
+      } catch {
+        // malformed entry — skip
+      }
+    }
+  }
+
   if (allowed.size === 0) {
     // 設定 mis でいかなる allowlist も組み立てられない → fail-open
     // (production で NEXT_PUBLIC_SITE_URL が malformed だと全 request 403 に

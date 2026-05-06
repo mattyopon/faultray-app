@@ -39,16 +39,22 @@ export async function GET(request: Request) {
     return NextResponse.json(await probeAll());
   }
 
-  // 未認証 (公開): 既存 contract (overall / services / checked_at) は維持し、
-  // services の各要素から per-vendor latency_ms / note を削除して
-  // dependency mapping / timing abuse を防ぐ。external dashboard 等の既存
-  // 利用者は services 配列の name/status だけが見えれば壊れない。
-  // (review-loop 2, P2): 完全に shape を変えると外部 monitor が即時 break するため
-  // strip 方式を取る。
+  // 未認証 (公開): 既存 contract (overall / services[ServiceProbe] / checked_at)
+  // を完全に維持。ただし dependency mapping / timing abuse の核となる
+  // latency_ms / note は **null に置き換え** て隠す。`s.latency_ms` を読む
+  // 既存 monitor は型 (number | null) のまま動作し、null check で問題なく
+  // skip できる。`s.note` も同様。
+  // (review-loop 2 → 3, P2): shape そのものを縮めると外部 monitor が即破綻するため
+  // 値だけを null 化する compatible-strip 方式に再修正。
   const result = await probeAll();
   return NextResponse.json({
     overall: result.overall,
-    services: result.services.map((s) => ({ name: s.name, status: s.status })),
+    services: result.services.map((s) => ({
+      name: s.name,
+      status: s.status,
+      latency_ms: null,
+      note: null,
+    })),
     checked_at: result.checked_at,
   });
 }
