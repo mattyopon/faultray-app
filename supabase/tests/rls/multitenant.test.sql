@@ -46,10 +46,10 @@ create extension if not exists pgtap;
 --   org_members            : 12  (SELECT × 6 + INSERT lives × 2 + INSERT throws × 4)
 --   tasks                  :  9  (SELECT × 6 + INSERT lives × 2 + TODO forgery × 1)
 --   anon                   :  4  (SELECT × 3 + INSERT throw × 1)
--- contact_requests/coupons :  7 assertion (#72)
+-- contact_requests/coupons :  8 assertion (#72)
 --   contact_requests       :  4  (anon INSERT lives + SELECT 0row, auth INSERT lives + SELECT 0row)
---   coupons                :  3  (auth SELECT 1row, anon SELECT 0row, auth INSERT throws)
-select plan(80);
+--   coupons                :  4  (auth SELECT 1row, anon SELECT 0row, auth INSERT throws, auth UPDATE 0 affected)
+select plan(81);
 
 -- ============================================================
 -- Setup: auth.users を直接 INSERT して 3 ユーザー + 2 team を作成
@@ -898,6 +898,22 @@ select throws_ok(
      values ('FORGED72', 'pro', 365, 0) $$,
   NULL::text, NULL::text,
   'coupons: authenticated CANNOT INSERT (no INSERT policy → RLS deny)'
+);
+
+-- ── coupons: authenticated は UPDATE silently denied (UPDATE policy 不在 → RLS deny) ──
+-- Postgres の RLS は UPDATE policy 不在の場合、視認できる行を更新しようとしても
+-- 0 affected (silent skip) になる (throws ではない)。これが /api/coupon/redeem を
+-- user client で increment しようとすると 409 に落ちる原因 (PR #100 Codex P1 review
+-- 指摘 → admin client へ修正)。本 assertion は redeem path の regression-lock:
+-- authenticated として UPDATE を試行し、service_role で current_uses が変更されて
+-- いないことを検証する。
+update public.coupons set current_uses = current_uses + 1 where code = 'TESTCODE72';
+
+select test_as_service_role();
+select is(
+  (select current_uses from public.coupons where code = 'TESTCODE72'),
+  0,
+  'coupons: authenticated UPDATE silently denied (current_uses unchanged after attempted increment)'
 );
 
 -- ============================================================

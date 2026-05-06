@@ -68,7 +68,11 @@ export async function POST(request: Request) {
 
   // 4. クーポンのcurrent_usesを楽観的ロックでインクリメント。
   // WHERE current_uses = coupon.current_uses で競合を検出。
-  const { data: updatedCoupons, error: incrementError } = await supabase
+  // admin client で実行: coupons の RLS は SELECT (authenticated) のみ許可、
+  // INSERT/UPDATE/DELETE policy 不在 → user client では RLS deny。migration 016
+  // で production faithful な policy 設計を再現したのに合わせ、increment は
+  // service_role bypass で行う (#72 / Codex review PR #100)。
+  const { data: updatedCoupons, error: incrementError } = await admin
     .from("coupons")
     .update({ current_uses: coupon.current_uses + 1 })
     .eq("id", coupon.id)
