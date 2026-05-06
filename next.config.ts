@@ -56,21 +56,19 @@ function buildCsp(): string {
 
 const nextConfig: NextConfig = {
   async headers() {
-    // #88 (P3-4): CORS allowlist は server-only env で管理する。
-    //   - ALLOWED_ORIGIN  : single origin (legacy / simple deployments)
-    //   - ALLOWED_ORIGINS : comma-separated, 多重 origin (preview/staging/production)
-    // どちらも server-only。fallback として NEXT_PUBLIC_SITE_URL を残すが、これは
-    // bundle に露出する public env なので server-only env が設定されていれば優先する。
-    // 最終 fallback は production canonical ("https://faultray.com") のみ。
-    const allowedOriginsRaw =
-      process.env.ALLOWED_ORIGINS ?? process.env.ALLOWED_ORIGIN ?? null;
-    const allowedOriginsList = allowedOriginsRaw
-      ? allowedOriginsRaw.split(",").map((s) => s.trim()).filter(Boolean)
-      : null;
+    // #88 (P3-4): CORS allowlist を server-only env で管理する。
+    //   ALLOWED_ORIGIN : single origin。next.config.ts の static header は
+    //                    request 単位で値を変えられないため、CORS 仕様 (single
+    //                    origin or "*" のみ; comma-separated は browser reject)
+    //                    に合わせ単一値だけを受ける。fallback で NEXT_PUBLIC_SITE_URL
+    //                    (public bundle 露出だが既存挙動維持)、最終 fallback で
+    //                    canonical "https://faultray.com"。
+    //   多重 origin を扱いたい場合は middleware で request.headers.origin を echo
+    //   する設計に移行する (本 PR の scope 外、followup)。
     const allowedOrigin =
-      allowedOriginsList && allowedOriginsList.length > 0
-        ? allowedOriginsList.join(", ")
-        : process.env.NEXT_PUBLIC_SITE_URL || "https://faultray.com";
+      process.env.ALLOWED_ORIGIN ??
+      process.env.NEXT_PUBLIC_SITE_URL ??
+      "https://faultray.com";
 
     return [
       {

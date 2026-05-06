@@ -18,28 +18,32 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET(request: Request) {
-  const result = await probeAll();
   const url = new URL(request.url);
   const wantsDetailed = url.searchParams.get("detailed") === "true";
 
-  if (!wantsDetailed) {
-    // 公開: overall status のみ。per-vendor latency / config は隠す。
-    return NextResponse.json({
-      overall: result.overall,
-      checked_at: result.checked_at,
-    });
+  // (review-loop 1, P2): auth check を probe より前に置く。さもないと unauth
+  // caller でも全 vendor probe が triggered され、overall response の latency
+  // から per-vendor timing を推定できてしまう (本 PR の info-disclosure 対策が
+  // 形骸化)。upstream services への load も軽減。
+  if (wantsDetailed) {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: "Authentication required for detailed status." },
+        { status: 401 }
+      );
+    }
+    return NextResponse.json(await probeAll());
   }
 
-  // detailed=true は authenticated session 必須 (#86)。
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json(
-      { error: "Authentication required for detailed status." },
-      { status: 401 }
-    );
-  }
-  return NextResponse.json(result);
+  // 未認証 (公開): overall status と timestamp のみ。per-vendor latency / config
+  // は隠す。overall を出すために probe は走らせる必要がある。
+  const result = await probeAll();
+  return NextResponse.json({
+    overall: result.overall,
+    checked_at: result.checked_at,
+  });
 }
