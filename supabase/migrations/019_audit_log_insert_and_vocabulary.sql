@@ -44,8 +44,11 @@ CREATE POLICY "Team members can insert their team's audit logs"
     AND (
       team_id IS NULL
       OR team_id IN (
+        -- ``team_members`` has no ``status`` column (migration 001); every
+        -- row already represents an active membership, so matching by
+        -- ``user_id`` alone is sufficient and matches the route handler.
         SELECT team_id FROM public.team_members
-        WHERE user_id = auth.uid() AND status = 'active'
+        WHERE user_id = auth.uid()
       )
     )
   );

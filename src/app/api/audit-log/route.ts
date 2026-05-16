@@ -28,12 +28,13 @@ export async function GET(request: Request) {
   const { createClient } = await import("@/lib/supabase/server");
   const supabase = await createClient();
 
-  // Resolve user's team — only active memberships can view audit logs
+  // Resolve user's team. ``team_members`` has no ``status`` column today —
+  // every row already represents an active membership (status was an org_members
+  // concept we mis-copied). Filtering by it returns zero rows and breaks reads.
   const { data: membership } = await supabase
     .from("team_members")
     .select("team_id")
     .eq("user_id", user.id)
-    .eq("status", "active")
     .limit(1)
     .maybeSingle();
 
@@ -104,12 +105,12 @@ export async function POST(request: Request) {
   const { createClient } = await import("@/lib/supabase/server");
   const supabase = await createClient();
 
-  // Resolve team — only active memberships can write audit logs
+  // Resolve team — see GET handler comment; team_members has no ``status``
+  // column today, so we filter only by user_id.
   const { data: membership } = await supabase
     .from("team_members")
     .select("team_id")
     .eq("user_id", user.id)
-    .eq("status", "active")
     .limit(1)
     .maybeSingle();
 
