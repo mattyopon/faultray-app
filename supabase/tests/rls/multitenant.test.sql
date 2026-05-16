@@ -54,7 +54,7 @@ create extension if not exists pgtap;
 -- member_systems WITH CHECK:  2 assertion (#83, migration 018, structural existence)
 -- delete_user_account RPC  :  6 assertion (#70 finding 3-5, migration 017)
 --   pre/post check         :  6  (org_p delete via owner CASCADE + cascade chain, org_q untouched)
-select plan(93);
+select plan(97);
 
 -- ============================================================
 -- Setup: auth.users を直接 INSERT して 3 ユーザー + 2 team を作成
@@ -1056,6 +1056,72 @@ select is(
   1,
   '#70: unrelated user_c org_membership preserved'
 );
+
+-- ============================================================
+-- #110 + #111: audit_logs INSERT path + action vocabulary alignment
+-- (migration 019)
+-- ============================================================
+--
+-- 1) user_a is a team_x member → INSERT under user_a's own user_id with team_x
+--    is accepted; SELECT also returns it. Action value uses the canonical
+--    UPPER_SNAKE vocabulary (was rejected before #111 fix).
+-- 2) Spoofing user_id (user_a sets user_id = user_b) is rejected by WITH CHECK.
+-- 3) user_a inserting into team_y (cross-team) is rejected by WITH CHECK.
+-- 4) team_id = NULL is allowed as long as user_id matches auth.uid().
+
+select test_as_user(:'user_a_id'::uuid);
+
+-- (1) valid INSERT
+prepare ok_insert as
+  insert into public.audit_logs (team_id, user_id, actor_email, action, outcome)
+  values (:'team_x_id'::uuid, :'user_a_id'::uuid, 'a@example.com', 'SIMULATION_RUN', 'SUCCESS');
+select lives_ok(
+  'execute ok_insert',
+  '#110: same-team member can INSERT audit_logs under own user_id'
+);
+
+select is(
+  (select count(*)::int from public.audit_logs
+   where team_id = :'team_x_id'::uuid and user_id = :'user_a_id'::uuid),
+  1,
+  '#110: the row landed and is visible via SELECT'
+);
+
+-- (2) spoof user_id → blocked
+prepare spoof_user as
+  insert into public.audit_logs (team_id, user_id, actor_email, action)
+  values (:'team_x_id'::uuid, :'user_b_id'::uuid, 'b@example.com', 'LOGIN');
+select throws_ok(
+  'execute spoof_user',
+  NULL,
+  NULL,
+  '#110: user_id spoofing (user_id <> auth.uid()) is rejected by WITH CHECK'
+);
+
+-- (3) cross-team → blocked
+prepare cross_team as
+  insert into public.audit_logs (team_id, user_id, actor_email, action)
+  values (:'team_y_id'::uuid, :'user_a_id'::uuid, 'a@example.com', 'LOGIN');
+select throws_ok(
+  'execute cross_team',
+  NULL,
+  NULL,
+  '#110: cross-team INSERT rejected — user_a cannot log against team_y'
+);
+
+-- (4) team_id NULL is fine when user_id matches
+prepare null_team as
+  insert into public.audit_logs (team_id, user_id, actor_email, action)
+  values (NULL, :'user_a_id'::uuid, 'a@example.com', 'SETTINGS_CHANGE');
+select lives_ok(
+  'execute null_team',
+  '#110: team_id NULL is accepted when user_id matches auth.uid()'
+);
+
+deallocate ok_insert;
+deallocate spoof_user;
+deallocate cross_team;
+deallocate null_team;
 
 -- ============================================================
 -- finish
