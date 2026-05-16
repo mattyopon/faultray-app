@@ -26,7 +26,19 @@ export async function GET(request: Request) {
   // から per-vendor timing を推定できてしまう (本 PR の info-disclosure 対策が
   // 形骸化)。upstream services への load も軽減。
   if (wantsDetailed) {
-    const supabase = await createClient();
+    // (review-loop 5, P2 — Codex 2026-05-06): Supabase env が unset / 壊れた
+    // 環境で createClient() は throw する。route 全体が 500 になり、しかも
+    // ?detailed=true の query 一発で誰でも error path を踏める。config 不在は
+    // 「detailed view は今出せない」という controlled response (503) で返す。
+    let supabase;
+    try {
+      supabase = await createClient();
+    } catch {
+      return NextResponse.json(
+        { error: "Detailed status temporarily unavailable." },
+        { status: 503 }
+      );
+    }
     const {
       data: { user },
     } = await supabase.auth.getUser();
