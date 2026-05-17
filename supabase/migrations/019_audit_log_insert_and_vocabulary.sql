@@ -43,13 +43,12 @@ CREATE POLICY "Team members can insert their team's audit logs"
     user_id = auth.uid()
     AND (
       team_id IS NULL
-      -- Use the SECURITY DEFINER helper from migration 006 instead of a
-      -- direct SELECT on public.team_members. Under RLS the direct
-      -- subquery returns an empty set (team_members' own SELECT policy
-      -- restricts visibility), so the WITH CHECK would refuse every
-      -- legitimate INSERT. The helper bypasses RLS, returning the caller's
-      -- real team_id set.
-      OR team_id IN (SELECT public.user_team_ids(auth.uid()))
+      -- Use the SECURITY DEFINER helper introduced in migration 006 and
+      -- hardened in migration 013 (no-arg, binds auth.uid() internally so
+      -- no caller can enumerate someone else's teams). A direct SELECT on
+      -- public.team_members would return an empty set under RLS and block
+      -- every legitimate INSERT.
+      OR team_id IN (SELECT public.user_team_ids())
     )
   );
 
