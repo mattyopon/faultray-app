@@ -1,19 +1,18 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
 import { applyRateLimit } from "@/lib/rate-limit";
+import { AUDIT_LOG_ACTION_SET } from "@/lib/audit-log-actions";
 
 export const dynamic = "force-dynamic";
 
-/** Allowed action values for audit log writes (whitelist). */
-const ALLOWED_ACTIONS = new Set([
-  "simulation.run",
-  "report.view",
-  "settings.update",
-  "team.invite",
-  "task.create",
-  "task.update",
-  "task.delete",
-]);
+/**
+ * Allowed action values for audit log writes (whitelist).
+ * #111: the previous list was lowercase dotted names (e.g. "simulation.run")
+ * which the DB CHECK constraint never accepted, so every POST returned 500.
+ * The canonical UPPER_SNAKE vocabulary lives in src/lib/audit-log-actions.ts
+ * and is mirrored by migration 019.
+ */
+const ALLOWED_ACTIONS = AUDIT_LOG_ACTION_SET;
 
 /**
  * GET /api/audit-log — List audit log entries for the user's team.
@@ -29,12 +28,13 @@ export async function GET(request: Request) {
   const { createClient } = await import("@/lib/supabase/server");
   const supabase = await createClient();
 
-  // Resolve user's team — only active memberships can view audit logs
+  // Resolve user's team. ``team_members`` has no ``status`` column today —
+  // every row already represents an active membership (status was an org_members
+  // concept we mis-copied). Filtering by it returns zero rows and breaks reads.
   const { data: membership } = await supabase
     .from("team_members")
     .select("team_id")
     .eq("user_id", user.id)
-    .eq("status", "active")
     .limit(1)
     .maybeSingle();
 
@@ -105,12 +105,12 @@ export async function POST(request: Request) {
   const { createClient } = await import("@/lib/supabase/server");
   const supabase = await createClient();
 
-  // Resolve team — only active memberships can write audit logs
+  // Resolve team — see GET handler comment; team_members has no ``status``
+  // column today, so we filter only by user_id.
   const { data: membership } = await supabase
     .from("team_members")
     .select("team_id")
     .eq("user_id", user.id)
-    .eq("status", "active")
     .limit(1)
     .maybeSingle();
 
