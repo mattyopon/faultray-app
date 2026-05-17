@@ -54,7 +54,7 @@ create extension if not exists pgtap;
 -- member_systems WITH CHECK:  2 assertion (#83, migration 018, structural existence)
 -- delete_user_account RPC  :  6 assertion (#70 finding 3-5, migration 017)
 --   pre/post check         :  6  (org_p delete via owner CASCADE + cascade chain, org_q untouched)
-select plan(97);
+select plan(98);
 
 -- ============================================================
 -- Setup: auth.users を直接 INSERT して 3 ユーザー + 2 team を作成
