@@ -45,8 +45,12 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const action = url.searchParams.get("action");
   const outcome = url.searchParams.get("outcome");
-  const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 100);
-  const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+  // Clamp pagination params — NaN or negative values would otherwise be
+  // passed straight into .range() and break the query.
+  const rawLimit = parseInt(url.searchParams.get("limit") || "50", 10);
+  const rawOffset = parseInt(url.searchParams.get("offset") || "0", 10);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 50;
+  const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
 
   let query = supabase
     .from("audit_logs")
