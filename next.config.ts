@@ -79,9 +79,12 @@ const nextConfig: NextConfig = {
     //                    canonical "https://faultray.com"。
     //   多重 origin を扱いたい場合は middleware で request.headers.origin を echo
     //   する設計に移行する (本 PR の scope 外、followup)。
+    //   (review-loop, Codex P2): `||` で繋ぐ — hosted env で `ALLOWED_ORIGIN=`
+    //   (空文字) は珍しくない誤設定で、`??` だと "" がそのまま header 値になり
+    //   全 browser の CORS check が落ちる。空文字は unset と同義に扱う。
     const allowedOrigin =
-      process.env.ALLOWED_ORIGIN ??
-      process.env.NEXT_PUBLIC_SITE_URL ??
+      process.env.ALLOWED_ORIGIN ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
       "https://faultray.com";
 
     return [
