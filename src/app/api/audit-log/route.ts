@@ -1,19 +1,18 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
 import { applyRateLimit } from "@/lib/rate-limit";
+import { AUDIT_LOG_ACTION_SET } from "@/lib/audit-log-actions";
 
 export const dynamic = "force-dynamic";
 
-/** Allowed action values for audit log writes (whitelist). */
-const ALLOWED_ACTIONS = new Set([
-  "simulation.run",
-  "report.view",
-  "settings.update",
-  "team.invite",
-  "task.create",
-  "task.update",
-  "task.delete",
-]);
+/**
+ * Allowed action values for audit log writes (whitelist).
+ * #111: the previous list was lowercase dotted names (e.g. "simulation.run")
+ * which the DB CHECK constraint never accepted, so every POST returned 500.
+ * The canonical UPPER_SNAKE vocabulary lives in src/lib/audit-log-actions.ts
+ * and is mirrored by migration 019.
+ */
+const ALLOWED_ACTIONS = AUDIT_LOG_ACTION_SET;
 
 /**
  * GET /api/audit-log — List audit log entries for the user's team.
@@ -29,12 +28,13 @@ export async function GET(request: Request) {
   const { createClient } = await import("@/lib/supabase/server");
   const supabase = await createClient();
 
-  // Resolve user's team — only active memberships can view audit logs
+  // Resolve user's team. ``team_members`` has no ``status`` column today —
+  // every row already represents an active membership (status was an org_members
+  // concept we mis-copied). Filtering by it returns zero rows and breaks reads.
   const { data: membership } = await supabase
     .from("team_members")
     .select("team_id")
     .eq("user_id", user.id)
-    .eq("status", "active")
     .limit(1)
     .maybeSingle();
 
@@ -45,8 +45,12 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const action = url.searchParams.get("action");
   const outcome = url.searchParams.get("outcome");
-  const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 100);
-  const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+  // Clamp pagination params — NaN or negative values would otherwise be
+  // passed straight into .range() and break the query.
+  const rawLimit = parseInt(url.searchParams.get("limit") || "50", 10);
+  const rawOffset = parseInt(url.searchParams.get("offset") || "0", 10);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 50;
+  const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
 
   let query = supabase
     .from("audit_logs")
@@ -105,12 +109,12 @@ export async function POST(request: Request) {
   const { createClient } = await import("@/lib/supabase/server");
   const supabase = await createClient();
 
-  // Resolve team — only active memberships can write audit logs
+  // Resolve team — see GET handler comment; team_members has no ``status``
+  // column today, so we filter only by user_id.
   const { data: membership } = await supabase
     .from("team_members")
     .select("team_id")
     .eq("user_id", user.id)
-    .eq("status", "active")
     .limit(1)
     .maybeSingle();
 

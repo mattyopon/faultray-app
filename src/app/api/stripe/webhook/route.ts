@@ -1,11 +1,26 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { applyRateLimit } from "@/lib/rate-limit";
+import type { PlanTier } from "@/lib/types";
 
 // Stripe webhook handler must read the raw body
 export const dynamic = "force-dynamic";
 
-type PlanTier = "free" | "starter" | "pro" | "business";
+/**
+ * Extract the customer id from an event object whose `customer` field may be
+ * a string id, an expanded object, or null (one-off invoices). Returning
+ * null lets handlers ack-without-action instead of looking up
+ * `stripe_customer_id = "[object Object]"` / throwing and forcing Stripe to
+ * retry an event that can never succeed.
+ */
+function customerIdFrom(obj: {
+  customer?: string | { id: string } | null;
+}): string | null {
+  const c = obj.customer;
+  if (typeof c === "string") return c;
+  if (c && typeof c === "object" && typeof c.id === "string") return c.id;
+  return null;
+}
 
 /**
  * Stripe Invoice extension (#31):
@@ -52,11 +67,27 @@ async function getSupabaseAdmin() {
   return createClient(url, serviceRoleKey);
 }
 
-async function updateUserPlan(userId: string, plan: PlanTier, subscriptionStatus?: string): Promise<void> {
+/**
+ * #112: ``plan === null`` means "could not resolve a plan from Stripe — keep
+ * whatever is currently in the profile". We must never substitute a paid tier
+ * as a fallback because that silently rewrites the customer's entitlement.
+ */
+async function updateUserPlan(
+  userId: string,
+  plan: PlanTier | null,
+  subscriptionStatus?: string
+): Promise<void> {
   const supabase = await getSupabaseAdmin();
-  const updatePayload: Record<string, unknown> = { plan };
+  const updatePayload: Record<string, unknown> = {};
+  if (plan !== null) {
+    updatePayload.plan = plan;
+  }
   if (subscriptionStatus !== undefined) {
     updatePayload.subscription_status = subscriptionStatus;
+  }
+  if (Object.keys(updatePayload).length === 0) {
+    // Nothing to write (no plan change, no status change).
+    return;
   }
   const { error } = await supabase
     .from("profiles")
@@ -89,7 +120,7 @@ async function resolveUserByCustomerId(
 
 async function updateUserByCustomerId(
   customerId: string,
-  plan: PlanTier,
+  plan: PlanTier | null,
   subscriptionStatus?: string
 ): Promise<void> {
   const userId = await resolveUserByCustomerId(customerId);
@@ -434,7 +465,13 @@ export async function POST(request: Request) {
       // #79 P1: customer_id source-of-truth で resolve。metadata.user_id は信用しない。
       case "customer.subscription.updated": {
         const subscription = event.data.object as Stripe.Subscription;
-        const customerId = subscription.customer as string;
+        const customerId = customerIdFrom(subscription);
+        if (!customerId) {
+          console.warn(
+            "[stripe/webhook] customer.subscription.updated: no customer id on event — ack without action"
+          );
+          break;
+        }
         const status = subscription.status; // active | past_due | canceled | ...
 
         // Determine plan from first price item
@@ -461,7 +498,13 @@ export async function POST(request: Request) {
       // 何も起こせないため、リスクなし。
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
-        const customerId = subscription.customer as string;
+        const customerId = customerIdFrom(subscription);
+        if (!customerId) {
+          console.warn(
+            "[stripe/webhook] customer.subscription.deleted: no customer id on event — ack without action"
+          );
+          break;
+        }
 
         const userId = await resolveUserByCustomerId(customerId);
         if (!userId) {
@@ -481,7 +524,13 @@ export async function POST(request: Request) {
       // ── Payment failed: notify and mark past_due ──────────────────────────
       case "invoice.payment_failed": {
         const invoice = event.data.object as Stripe.Invoice;
-        const customerId = invoice.customer as string;
+        const customerId = customerIdFrom(invoice);
+        if (!customerId) {
+          console.warn(
+            "[stripe/webhook] invoice.payment_failed: no customer id on event — ack without action"
+          );
+          break;
+        }
         const attemptCount = invoice.attempt_count ?? 1;
 
         console.warn(
@@ -498,14 +547,24 @@ export async function POST(request: Request) {
           // NOTE (#31): replaced `as any` cast with InvoiceWithSubscription.
           const subscriptionId: string | null = extractSubscriptionId(invoice);
 
-          let resolvedPlan: PlanTier = "pro"; // fallback
+          // #112: never default to a paid tier here. When subscription /
+          // priceId resolution fails, keep the existing plan (null) and only
+          // flip status to past_due. Transient Stripe retrieve errors are
+          // re-thrown so Stripe retries, instead of silently downgrading.
+          let resolvedPlan: PlanTier | null = null;
           if (subscriptionId) {
             try {
               const subscription = await stripe.subscriptions.retrieve(subscriptionId);
               const priceId = subscription.items.data[0]?.price?.id;
-              resolvedPlan = (priceId ? planTierFromPriceId(priceId) : null) ?? "pro";
+              resolvedPlan = priceId ? planTierFromPriceId(priceId) : null;
+              if (resolvedPlan === null) {
+                console.warn(
+                  `[stripe/webhook] payment_failed: unresolved plan for priceId=${priceId ?? "(missing)"}; preserving existing plan`
+                );
+              }
             } catch (err) {
               console.error("[stripe/webhook] Failed to retrieve subscription for payment_failed:", err);
+              throw err;
             }
           }
 
@@ -519,7 +578,13 @@ export async function POST(request: Request) {
       // #79 P1: customer_id source-of-truth で resolve。metadata.user_id は信用しない。
       case "invoice.payment_succeeded": {
         const invoice = event.data.object as Stripe.Invoice;
-        const customerId = invoice.customer as string;
+        const customerId = customerIdFrom(invoice);
+        if (!customerId) {
+          console.warn(
+            "[stripe/webhook] invoice.payment_succeeded: no customer id on event — ack without action"
+          );
+          break;
+        }
         // Extract subscription id from parent (Stripe API v2+) or legacy field.
         // NOTE (#31): replaced `as any` cast with InvoiceWithSubscription.
         const subscriptionId: string | null = extractSubscriptionId(invoice);
@@ -531,10 +596,19 @@ export async function POST(request: Request) {
           );
           const priceId = subscription.items.data[0]?.price?.id;
           const plan = priceId ? planTierFromPriceId(priceId) : null;
-          const resolvedPlan: PlanTier = plan ?? "pro";
+          // #112: don't fall back to "pro" — that silently rewrites the
+          // entitlement of starter/business customers whose price ID isn't in
+          // our local mapping. Preserve the existing plan instead and only flip
+          // status to "active". Operators can fix the mapping and replay.
+          const resolvedPlan: PlanTier | null = plan;
+          if (resolvedPlan === null) {
+            console.warn(
+              `[stripe/webhook] payment_succeeded: unresolved plan for priceId=${priceId ?? "(missing)"}; preserving existing plan`
+            );
+          }
           await updateUserByCustomerId(customerId, resolvedPlan, "active");
           console.info(
-            `[stripe/webhook] invoice.payment_succeeded: customer=${customerId} plan=${resolvedPlan}`
+            `[stripe/webhook] invoice.payment_succeeded: customer=${customerId} plan=${resolvedPlan ?? "(preserved)"}`
           );
         }
         break;
