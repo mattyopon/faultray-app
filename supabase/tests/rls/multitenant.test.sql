@@ -846,34 +846,40 @@ select throws_ok(
 --   contact_requests : INSERT は誰でも可、SELECT 等は policy 不在 → RLS deny
 --   coupons          : SELECT は authenticated のみ、INSERT 等は RLS deny
 
--- ── contact_requests: anon が INSERT 可、SELECT 不可 ──
+-- ── contact_requests: #118 (migration 020) で browser 直接アクセスを全面閉鎖。
+--    INSERT は /api/contact (service_role) のみ、SELECT は従来どおり不可
+--    (grant 自体も revoke 済みのため permission denied になる)。──
 select test_as_anon();
 
-select lives_ok(
+select throws_ok(
   $$ insert into public.contact_requests (company, name, email, company_size, message)
      values ('Acme', 'Anon Sender', 'anon@test.local', '11-50', 'inquiry from public form') $$,
-  'contact_requests: anon CAN INSERT (public form path)'
+  '42501', null,
+  'contact_requests: anon direct INSERT denied after #118 lockdown'
 );
 
-select is(
-  (select count(*)::int from public.contact_requests),
-  0,
-  'contact_requests: anon SELECT returns 0 rows (no SELECT policy)'
+select throws_ok(
+  $$ select count(*) from public.contact_requests $$,
+  '42501', null,
+  'contact_requests: anon SELECT denied (grant revoked)'
 );
 
--- ── contact_requests: authenticated も INSERT 可、SELECT 不可 ──
 select test_as_user(:'user_a_id'::uuid);
 
-select lives_ok(
+select throws_ok(
   $$ insert into public.contact_requests (company, name, email, company_size, message)
      values ('Acme2', 'User A', 'a@test.local', '50-200', 'logged-in user inquiry') $$,
-  'contact_requests: authenticated CAN INSERT'
+  '42501', null,
+  'contact_requests: authenticated direct INSERT denied after #118 lockdown'
 );
 
+-- NB: CI harness re-grants table privileges to authenticated after
+-- migrations, so the 020 revoke is not observable here — the portable
+-- invariant is RLS: no SELECT policy means zero visible rows.
 select is(
   (select count(*)::int from public.contact_requests),
   0,
-  'contact_requests: authenticated SELECT returns 0 rows (no SELECT policy)'
+  'contact_requests: authenticated sees zero rows (no SELECT policy)'
 );
 
 -- ── coupons: service_role でテスト用クーポン投入 (RLS bypass) ──
