@@ -184,6 +184,19 @@ jobs:
           # grant on newly created tables
           psql -v ON_ERROR_STOP=1 -c "grant select, insert, update, delete on all tables in schema public to authenticated, service_role;"
 
+      - name: Re-apply migrations (idempotency check)
+        # ISSUE-75 (item 1, idempotency half): re-run every migration a second time
+        # against the SAME Postgres instance. Migrations must be idempotent
+        # (IF NOT EXISTS / DROP ... IF EXISTS / CREATE OR REPLACE), so the second
+        # pass must succeed with no errors. A failure here means some DDL is not
+        # idempotent — the class of bug PR #67 fixed by hand.
+        run: |
+          set -euo pipefail
+          for f in supabase/migrations/*.sql; do
+            echo "== re-applying $f =="
+            psql -v ON_ERROR_STOP=1 -f "$f"
+          done
+
       - name: Run pgTAP RLS tests
         run: |
           set -euo pipefail
