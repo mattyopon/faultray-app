@@ -1,0 +1,34 @@
+-- 022: profiles に subscription_event_at を追加し、Stripe webhook の
+--      last-write-wins / TOCTOU (#82 / P2-4, epic #77) を DB-atomic に防ぐ。
+-- ----------------------------------------------------------------------------
+-- 背景:
+--   並列イベント (例: invoice.payment_succeeded と customer.subscription.deleted
+--   が同時到着) や遅延リトライで、古い event が新しい state を上書きし、
+--   profiles.plan / subscription_status が Stripe の真の最新と乖離する。
+--
+-- 設計 (Codex review で best-effort ledger gate から作り替え):
+--   - profiles に subscription_event_at (= その profile を最後に変更した Stripe
+--     event の event.created を timestamptz 化した値) を nullable で追加。
+--   - webhook の plan/status 更新は条件付き UPDATE
+--       UPDATE profiles
+--          SET ..., subscription_event_at = :incoming
+--        WHERE id = :id
+--          AND (subscription_event_at IS NULL OR subscription_event_at <= :incoming)
+--     とし、incoming event が「最後に適用した event 以降」のときだけ適用する。
+--     述語評価と書き込みが 1 つの atomic statement なので、同一 customer に対する
+--     新旧 event が同時に in-flight でも順序が逆転しない (processed 済み行に依存
+--     する ledger ベースの best-effort gate と違い、true な per-row serializer)。
+--   - 既存行は backfill しない (NULL のまま)。NULL は「未記録 = 適用」に倒れる
+--     ので、移行直後の active customer は次の event で自然に高水位を確立する。
+--     processed_at 等の受信時刻で backfill すると、実際にはより新しい遅延 event が
+--     人工的な高水位と比較されて恒久 skip される (Codex review) ため避ける。
+--
+-- セキュリティ (billing-bypass 防止, epic #77 P1-1):
+--   013 の column-level GRANT は authenticated に email/full_name/avatar_url/
+--   notification_preferences のみ UPDATE を許可している。新規列 subscription_event_at
+--   はその whitelist に含まれないため、authenticated/anon は書き込めない
+--   (plan/subscription_status と同様 service_role 専用)。追加の REVOKE は不要。
+-- ----------------------------------------------------------------------------
+
+alter table public.profiles
+  add column if not exists subscription_event_at timestamptz;

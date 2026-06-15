@@ -67,15 +67,51 @@ async function getSupabaseAdmin() {
   return createClient(url, serviceRoleKey);
 }
 
+// 42703 = Postgres undefined_column; PGRST204 = PostgREST schema-cache miss.
+// Used to detect `profiles.subscription_event_at` not existing yet (migration
+// 022 not applied) so the recency guard can fail open instead of bricking
+// billing during the deploy window.
+function isUndefinedColumnError(error: {
+  code?: string;
+  message?: string;
+}): boolean {
+  if (error.code === "42703" || error.code === "PGRST204") return true;
+  return (
+    typeof error.message === "string" &&
+    error.message.includes("subscription_event_at") &&
+    /does not exist|schema cache/i.test(error.message)
+  );
+}
+
 /**
  * #112: ``plan === null`` means "could not resolve a plan from Stripe — keep
  * whatever is currently in the profile". We must never substitute a paid tier
  * as a fallback because that silently rewrites the customer's entitlement.
+ *
+ * #82 / P2-4 (review): the per-customer recency guard lives HERE and is
+ * enforced atomically by the database. `profiles.subscription_event_at` holds
+ * the Stripe `event.created` time of the most recent event that mutated this
+ * profile's plan/subscription_status. The conditional UPDATE applies the change
+ * only when the incoming event is newer-or-equal
+ * (`subscription_event_at IS NULL OR subscription_event_at <= incoming`) and
+ * advances `subscription_event_at` in the same statement. Because Postgres
+ * evaluates the predicate and the write as one atomic statement, two events
+ * racing for the same customer cannot apply out of order — even while both are
+ * in flight. This replaces the previous best-effort ledger high-water gate,
+ * which only saw already-`processed` rows and could let concurrent in-flight
+ * events both pass.
+ *
+ * Fail-open cases (apply without ordering):
+ *   - `eventCreatedAt == null` (event.created absent/invalid) → cannot order it.
+ *   - migration 022 not applied yet (`subscription_event_at` column missing) →
+ *     do not brick the webhook during the deploy window; the guard re-engages
+ *     automatically once the column exists.
  */
 async function updateUserPlan(
   userId: string,
   plan: PlanTier | null,
-  subscriptionStatus?: string
+  subscriptionStatus: string | undefined,
+  eventCreatedAt: Date | null
 ): Promise<void> {
   const supabase = await getSupabaseAdmin();
   const updatePayload: Record<string, unknown> = {};
@@ -86,15 +122,59 @@ async function updateUserPlan(
     updatePayload.subscription_status = subscriptionStatus;
   }
   if (Object.keys(updatePayload).length === 0) {
-    // Nothing to write (no plan change, no status change).
+    // Nothing to write (no plan change, no status change) — do not bump the
+    // recency high-water for a no-op.
     return;
   }
-  const { error } = await supabase
+
+  // Fail-open when we cannot order the event.
+  if (!eventCreatedAt) {
+    const { error } = await supabase
+      .from("profiles")
+      .update(updatePayload)
+      .eq("id", userId);
+    if (error) {
+      throw new Error(`Failed to update profile: ${error.message}`);
+    }
+    return;
+  }
+
+  const incomingIso = eventCreatedAt.toISOString();
+  const { data, error } = await supabase
     .from("profiles")
-    .update(updatePayload)
-    .eq("id", userId);
+    .update({ ...updatePayload, subscription_event_at: incomingIso })
+    .eq("id", userId)
+    // Apply only if this event is newer-or-equal to the last applied one.
+    .or(`subscription_event_at.is.null,subscription_event_at.lte.${incomingIso}`)
+    .select("id");
+
   if (error) {
+    if (isUndefinedColumnError(error)) {
+      console.error(
+        "[stripe/webhook] subscription_event_at missing (migration 022 not " +
+          "applied?) — applying without recency guard:",
+        error.message
+      );
+      const { error: fallbackError } = await supabase
+        .from("profiles")
+        .update(updatePayload)
+        .eq("id", userId);
+      if (fallbackError) {
+        throw new Error(`Failed to update profile: ${fallbackError.message}`);
+      }
+      return;
+    }
     throw new Error(`Failed to update profile: ${error.message}`);
+  }
+
+  if (!data || data.length === 0) {
+    // 0 rows updated: the stored subscription_event_at is newer than this
+    // event, so a newer event already applied — skip this stale write. (The
+    // userId was resolved/bootstrapped by the caller, so the row exists.)
+    console.warn(
+      `[stripe/webhook] superseded by newer event for user=${userId} ` +
+        `(event.created=${incomingIso}) — skipping stale billing update.`
+    );
   }
 }
 
@@ -121,7 +201,8 @@ async function resolveUserByCustomerId(
 async function updateUserByCustomerId(
   customerId: string,
   plan: PlanTier | null,
-  subscriptionStatus?: string
+  subscriptionStatus: string | undefined,
+  eventCreatedAt: Date | null
 ): Promise<void> {
   const userId = await resolveUserByCustomerId(customerId);
   if (!userId) {
@@ -135,68 +216,7 @@ async function updateUserByCustomerId(
         `bootstrap (checkout.session.completed) で stripe_customer_id が未 persist。`
     );
   }
-  await updateUserPlan(userId, plan, subscriptionStatus);
-}
-
-/**
- * #82 / P2-4 (epic #77): last-write-wins / TOCTOU guard.
- *
- * 並列イベント (例: `invoice.payment_succeeded` と `customer.subscription.deleted`
- * が同時到着) や遅延リトライで、古い event が新しい state を上書きすると
- * `profiles.plan` / `subscription_status` が Stripe の真の最新と乖離する。
- *
- * 防御: 同一 customer で既に status='processed' かつ `event_created_at` が
- * **non-null** な event (= 実際に billing mutation を適用した event。no-op パス
- * や履歴行は `event_created_at` が NULL のままなので high-water mark の対象外)
- * の最大 `event_created_at` を引き、incoming event の `event.created` がそれより
- * **古い**場合 (= 既に新しい event を適用済) は副作用を skip する。等しい場合は
- * 適用を許す (同秒の連続更新を取りこぼさないため。idempotency ledger が二重
- * 適用自体は別途防ぐ)。
- *
- * Fail-open 方針: high-water mark の読み取りに失敗した場合や event.created が
- * 欠落している場合は **適用を許す** (= false を返す)。recency gate は二次防御で
- * あり、ここで throw して billing 更新を止める方が害が大きいと判断。読み取り
- * エラーは log に残す。
- */
-async function isSupersededByNewerEvent(
-  admin: Awaited<ReturnType<typeof getSupabaseAdmin>>,
-  customerId: string,
-  currentEventId: string,
-  incomingCreatedAt: Date | null
-): Promise<boolean> {
-  if (!incomingCreatedAt) {
-    // event.created を解決できない → 比較不能。gate を fail-open。
-    return false;
-  }
-  const { data, error } = await admin
-    .from("processed_stripe_events")
-    .select("event_created_at")
-    .eq("customer_id", customerId)
-    .eq("status", "processed")
-    // Only rows that actually applied a billing mutation carry a recency
-    // marker; no-op / historical rows leave it NULL. Excluding NULLs also
-    // sidesteps Postgres' NULLS-FIRST ordering on a DESC sort, which would
-    // otherwise surface a NULL row and force a needless fail-open.
-    .not("event_created_at", "is", null)
-    .neq("event_id", currentEventId)
-    .order("event_created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) {
-    console.error(
-      "[stripe/webhook] recency lookup failed (fail-open, applying):",
-      error.message
-    );
-    return false;
-  }
-  const latestApplied = data?.event_created_at
-    ? new Date(data.event_created_at as string)
-    : null;
-  if (!latestApplied || Number.isNaN(latestApplied.getTime())) {
-    return false;
-  }
-  // incoming が strictly older → 既に新しい state を適用済なので skip。
-  return incomingCreatedAt.getTime() < latestApplied.getTime();
+  await updateUserPlan(userId, plan, subscriptionStatus, eventCreatedAt);
 }
 
 // #79 P1: bootstrap path専用。`checkout.session.completed` で初めて customerId が
@@ -318,25 +338,17 @@ export async function POST(request: Request) {
     );
   }
 
-  // #77 P2-3 review (Codex): the ledger's customer_id must match the id the
-  // handlers resolve via `customerIdFrom()`, which also unwraps an *expanded*
-  // `customer` object. Computing it here with only the string case left
-  // expanded-customer events recorded as customer_id=null, so their processed
-  // rows were invisible to the per-customer recency lookups and an older
-  // string-customer event could still overwrite their newer state. Normalize
-  // identically.
+  // The idempotency ledger's customer_id is recorded for observability/orphan
+  // review (the unmapped-deleted warn points here). It is normalized via
+  // customerIdFrom() so an expanded `customer` object is stored as its id.
   const eventCustomerId = customerIdFrom(
     event.data.object as { customer?: string | { id: string } | null }
   );
 
-  // #82 / P2-4: Stripe `event.created` (Unix seconds) → timestamptz, used as the
-  // per-customer recency high-water mark. It is recorded ONLY after a handler
-  // actually applies a billing mutation (success path below) — never on the
-  // claim INSERT. Recording it at claim time (Codex review) made no-op events
-  // (payment_failed attempt<2, one-off invoices, unmapped customers, unhandled
-  // types) act as high-water marks that could suppress a later delayed real
-  // update. Keeping it off the claim INSERT also means a not-yet-applied
-  // migration 022 can never reject the claim with an unknown-column error.
+  // #82 / P2-4: Stripe `event.created` (Unix seconds) → timestamptz. Passed to
+  // updateUserPlan, where the DB-atomic recency guard compares it against
+  // `profiles.subscription_event_at`. Null (event.created absent/invalid) makes
+  // the guard fail open. Not written to the ledger.
   const eventCreatedAt: Date | null =
     typeof event.created === "number" && Number.isFinite(event.created)
       ? new Date(event.created * 1000)
@@ -351,10 +363,6 @@ export async function POST(request: Request) {
         event_type: event.type,
         customer_id: eventCustomerId,
         status: "processing",
-        // event_created_at は claim 時には書かない。実際に billing mutation を
-        // 適用した event のみ success path で記録する (上の eventCreatedAt の
-        // コメント参照)。これにより migration 022 適用前でも claim INSERT が
-        // unknown-column で 500 しない。
       });
 
     if (!insertError) {
@@ -494,11 +502,8 @@ export async function POST(request: Request) {
     }
   }
   // claimedNew === true: we own this event; must mark processed/failed before return.
-  // appliedMutation flips true once a handler actually writes plan /
-  // subscription_status. Only then is this event's `event_created_at` recorded
-  // as the per-customer recency high-water mark (success path below); no-op
-  // branches leave it false so they never suppress a later real update.
-  let appliedMutation = false;
+  // The per-customer recency guard is enforced atomically inside updateUserPlan
+  // (profiles.subscription_event_at), so handlers just pass eventCreatedAt.
 
   try {
     switch (event.type) {
@@ -543,27 +548,12 @@ export async function POST(request: Request) {
             `Bootstrap failed: ${bootstrap.reason} (user_id=${userId} customer=${customerId})`
           );
         }
-        // #82 / P2-4 (review): checkout also records a recency marker, so it
-        // must be gated like the other mutating paths. In a repeat-checkout that
-        // reuses an existing Stripe customer, a delayed older
-        // checkout.session.completed could otherwise re-activate a profile whose
+        // #82 / P2-4 (review): checkout is gated by the same DB-atomic recency
+        // guard as the other mutating paths (inside updateUserPlan). In a
+        // repeat-checkout that reuses an existing Stripe customer, a delayed
+        // older checkout.session.completed cannot re-activate a profile whose
         // newer subscription.deleted / invoice event was already applied.
-        if (
-          await isSupersededByNewerEvent(
-            dedupeAdmin,
-            customerId,
-            event.id,
-            eventCreatedAt
-          )
-        ) {
-          console.warn(
-            `[stripe/webhook] checkout.session.completed: superseded by newer ` +
-              `event for customer=${customerId} — skipping stale activation.`
-          );
-          break;
-        }
-        await updateUserPlan(userId, plan, "active");
-        appliedMutation = true;
+        await updateUserPlan(userId, plan, "active", eventCreatedAt);
         console.info(
           `[stripe/webhook] checkout.session.completed: user=${userId} customer=${customerId} plan=${plan}`
         );
@@ -590,24 +580,9 @@ export async function POST(request: Request) {
         const resolvedPlan: PlanTier =
           (status === "active" || status === "trialing") && plan ? plan : "free";
 
-        // #82 / P2-4: 古い event が新しい state を上書きしないよう gate。
-        if (
-          await isSupersededByNewerEvent(
-            dedupeAdmin,
-            customerId,
-            event.id,
-            eventCreatedAt
-          )
-        ) {
-          console.warn(
-            `[stripe/webhook] customer.subscription.updated: superseded by newer ` +
-              `event for customer=${customerId} — skipping stale update.`
-          );
-          break;
-        }
-
-        await updateUserByCustomerId(customerId, resolvedPlan, status);
-        appliedMutation = true;
+        // #82 / P2-4: 古い event が新しい state を上書きしないよう updateUserPlan 内の
+        // DB-atomic recency guard で防ぐ。
+        await updateUserByCustomerId(customerId, resolvedPlan, status, eventCreatedAt);
         console.info(
           `[stripe/webhook] customer.subscription.updated: customer=${customerId} status=${status} plan=${resolvedPlan}`
         );
@@ -654,24 +629,9 @@ export async function POST(request: Request) {
           break;
         }
 
-        // #82 / P2-4: stale な deleted が新しい active state を上書きしないよう gate。
-        if (
-          await isSupersededByNewerEvent(
-            dedupeAdmin,
-            customerId,
-            event.id,
-            eventCreatedAt
-          )
-        ) {
-          console.warn(
-            `[stripe/webhook] customer.subscription.deleted: superseded by newer ` +
-              `event for customer=${customerId} — skipping stale cancel.`
-          );
-          break;
-        }
-
-        await updateUserPlan(userId, "free", "canceled");
-        appliedMutation = true;
+        // #82 / P2-4: stale な deleted が新しい active state を上書きしないよう
+        // updateUserPlan 内の DB-atomic recency guard で防ぐ。
+        await updateUserPlan(userId, "free", "canceled", eventCreatedAt);
         console.info(
           `[stripe/webhook] customer.subscription.deleted: customer=${customerId} user=${userId}`
         );
@@ -726,24 +686,8 @@ export async function POST(request: Request) {
           }
 
           // #82 / P2-4: 古い payment_failed が新しい active/canceled state を
-          // past_due に巻き戻さないよう gate。
-          if (
-            await isSupersededByNewerEvent(
-              dedupeAdmin,
-              customerId,
-              event.id,
-              eventCreatedAt
-            )
-          ) {
-            console.warn(
-              `[stripe/webhook] invoice.payment_failed: superseded by newer ` +
-                `event for customer=${customerId} — skipping stale past_due.`
-            );
-            break;
-          }
-
-          await updateUserByCustomerId(customerId, resolvedPlan, "past_due");
-          appliedMutation = true;
+          // past_due に巻き戻さないよう updateUserPlan 内の guard で防ぐ。
+          await updateUserByCustomerId(customerId, resolvedPlan, "past_due", eventCreatedAt);
           // TODO: trigger email notification via RETAIN-01 email system when implemented
         }
         break;
@@ -782,23 +726,8 @@ export async function POST(request: Request) {
             );
           }
           // #82 / P2-4: 古い payment_succeeded が新しい canceled/past_due state を
-          // active に巻き戻さないよう gate。
-          if (
-            await isSupersededByNewerEvent(
-              dedupeAdmin,
-              customerId,
-              event.id,
-              eventCreatedAt
-            )
-          ) {
-            console.warn(
-              `[stripe/webhook] invoice.payment_succeeded: superseded by newer ` +
-                `event for customer=${customerId} — skipping stale active.`
-            );
-            break;
-          }
-          await updateUserByCustomerId(customerId, resolvedPlan, "active");
-          appliedMutation = true;
+          // active に巻き戻さないよう updateUserPlan 内の guard で防ぐ。
+          await updateUserByCustomerId(customerId, resolvedPlan, "active", eventCreatedAt);
           console.info(
             `[stripe/webhook] invoice.payment_succeeded: customer=${customerId} plan=${resolvedPlan ?? "(preserved)"}`
           );
@@ -828,31 +757,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 
-  // Success path. Two writes, intentionally kept separate:
-  //   1) #82 / P2-4 recency marker — record `event_created_at` ONLY when this
-  //      event applied a billing mutation. Non-fatal by design: a missing
-  //      column during the migration-022 deploy window (or any write error)
-  //      just degrades the recency gate until the migration lands; it must
-  //      never block the ack. Written BEFORE the status flip so that once the
-  //      row becomes visible as 'processed', its high-water mark is already set.
-  //   2) flip claim 'processing' → 'processed'. Must always succeed and must
-  //      never reference `event_created_at`, so a not-yet-applied migration
-  //      cannot strand the claim in 'processing'. Happens AFTER side effects.
+  // Success path: flip claim 'processing' → 'processed'. The recency high-water
+  // (profiles.subscription_event_at) was already advanced atomically with the
+  // billing write inside updateUserPlan, so there is no separate marker to
+  // record here. Happens AFTER all side effects committed.
   if (claimedNew) {
-    if (appliedMutation && eventCreatedAt) {
-      const { error: recencyError } = await dedupeAdmin
-        .from("processed_stripe_events")
-        .update({ event_created_at: eventCreatedAt.toISOString() })
-        .eq("event_id", event.id);
-      if (recencyError) {
-        console.error(
-          "[stripe/webhook] failed to record recency marker " +
-            "(recency gate degraded until migration 022 applies):",
-          recencyError.message
-        );
-      }
-    }
-
     const { error: markError } = await dedupeAdmin
       .from("processed_stripe_events")
       .update({ status: "processed" })
