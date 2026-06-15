@@ -79,6 +79,9 @@ let _ledger: LedgerRow[] = [];
 let _profiles: ProfileRow[] = [];
 // Force the ledger INSERT to report a unique-violation (simulate duplicate).
 let _ledgerInsertConflict = false;
+// Simulate `event_created_at` not existing yet (migration 022 not applied):
+// any UPDATE whose payload touches that column reports an unknown-column error.
+let _recencyMarkerError = false;
 // Captured profile updates so tests can assert plan/status writes.
 const _profileUpdates: Array<{ id: string; payload: Record<string, unknown> }> = [];
 
@@ -97,6 +100,7 @@ function makeBuilder(table: string) {
       if (f.op === "eq") return v === f.val;
       if (f.op === "neq") return v !== f.val;
       if (f.op === "lt") return (v as string) < (f.val as string);
+      if (f.op === "not_is_null") return v !== null && v !== undefined;
       return true;
     });
 
@@ -158,6 +162,13 @@ function makeBuilder(table: string) {
       filters.push({ op: "lt", col, val });
       return builder;
     },
+    not(col: string, op: string, val: unknown) {
+      // Only the `IS NOT NULL` shape is used by the route.
+      if (op === "is" && val === null) {
+        filters.push({ op: "not_is_null", col, val: null });
+      }
+      return builder;
+    },
     order(col: string, opts?: { ascending?: boolean }) {
       orderCol = col;
       orderDesc = opts?.ascending === false;
@@ -178,6 +189,20 @@ function makeBuilder(table: string) {
       // This `then` handles UPDATE chains that are awaited directly
       // (e.g. updateUserPlan's `.update().eq()` and the markFailed/markProcessed).
       if (mode === "update") {
+        if (
+          table === "processed_stripe_events" &&
+          _recencyMarkerError &&
+          updatePayload &&
+          Object.prototype.hasOwnProperty.call(updatePayload, "event_created_at")
+        ) {
+          // Migration 022 not applied: PostgREST rejects the unknown column.
+          // The route must treat this as non-fatal and still flip to 'processed'.
+          resolve({
+            data: null,
+            error: { code: "42703", message: 'column "event_created_at" does not exist' },
+          });
+          return;
+        }
         const rows = rowsFor();
         for (const row of rows) {
           Object.assign(row, updatePayload);
@@ -266,6 +291,7 @@ describe("Stripe webhook hardening (#77 / #82)", () => {
     _profiles = [];
     _profileUpdates.length = 0;
     _ledgerInsertConflict = false;
+    _recencyMarkerError = false;
     _nextEvent = null;
     _constructThrows = false;
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
@@ -491,6 +517,140 @@ describe("Stripe webhook hardening (#77 / #82)", () => {
       const { status } = await invoke(event);
       expect(status).toBe(200);
       expect(_profileUpdates.filter((u) => u.id === "u4").length).toBeGreaterThan(0);
+    });
+  });
+
+  // ── Finding 2 review (Codex): recency high-water hygiene ──────────────────
+  // The recency marker must only reflect events that actually applied a billing
+  // mutation, must be visible for expanded-customer events, and its write must
+  // never break the ack (deploy-ordering with migration 022).
+  describe("#82 P2-4 review: recency marker hygiene", () => {
+    it("a no-op event (payment_failed attempt<2) records NO recency marker and does not suppress a later older real update", async () => {
+      _profiles = [{ id: "u_noop", stripe_customer_id: "cus_noop" }];
+      // 1) NEWER no-op: payment_failed attempt_count=1 → handler does nothing
+      //    but still claims + marks the event processed. It must NOT set a
+      //    recency high-water mark (regression: claim-time writes did).
+      const noop = {
+        id: "evt_noop_newer",
+        type: "invoice.payment_failed",
+        created: 1_700_010_000, // newer
+        data: { object: { customer: "cus_noop", attempt_count: 1 } },
+      };
+      const noopRes = await invoke(noop);
+      expect(noopRes.status).toBe(200);
+      const noopRow = _ledger.find((r) => r.event_id === "evt_noop_newer");
+      expect(noopRow?.status).toBe("processed");
+      expect(noopRow?.event_created_at ?? null).toBeNull();
+      expect(_profileUpdates.filter((u) => u.id === "u_noop")).toHaveLength(0);
+
+      // 2) OLDER real subscription.updated arrives afterwards. With the old
+      //    behavior the no-op's newer high-water would suppress it; with the
+      //    fix the no-op left no marker, so this real update applies.
+      const real = {
+        id: "evt_real_older",
+        type: "customer.subscription.updated",
+        created: 1_700_009_000, // older than the no-op
+        data: {
+          object: {
+            customer: "cus_noop",
+            status: "active",
+            items: { data: [{ price: { id: "price_pro_test" } }] },
+          },
+        },
+      };
+      const realRes = await invoke(real);
+      expect(realRes.status).toBe(200);
+      expect(
+        _profileUpdates.some(
+          (u) => u.id === "u_noop" && u.payload.subscription_status === "active"
+        )
+      ).toBe(true);
+    });
+
+    it("an expanded-customer event records its normalized customer id and suppresses a later older string-customer event", async () => {
+      _profiles = [{ id: "u_exp", stripe_customer_id: "cus_exp" }];
+      // 1) NEWER subscription.updated whose `customer` is an EXPANDED object.
+      const expanded = {
+        id: "evt_expanded_new",
+        type: "customer.subscription.updated",
+        created: 1_700_020_000, // newer
+        data: {
+          object: {
+            customer: { id: "cus_exp" }, // expanded, not a bare string
+            status: "active",
+            items: { data: [{ price: { id: "price_pro_test" } }] },
+          },
+        },
+      };
+      const r1 = await invoke(expanded);
+      expect(r1.status).toBe(200);
+      const expRow = _ledger.find((r) => r.event_id === "evt_expanded_new");
+      // Ledger recorded the normalized id (not null) + recency marker.
+      expect(expRow?.customer_id).toBe("cus_exp");
+      expect(expRow?.event_created_at).toBe(
+        new Date(1_700_020_000 * 1000).toISOString()
+      );
+
+      // 2) OLDER string-customer event for the same customer must be suppressed
+      //    by the expanded event's high-water (invisible to recency pre-fix).
+      const olderStr = {
+        id: "evt_str_old",
+        type: "customer.subscription.updated",
+        created: 1_700_019_000, // older
+        data: {
+          object: {
+            customer: "cus_exp",
+            status: "past_due",
+            items: { data: [{ price: { id: "price_pro_test" } }] },
+          },
+        },
+      };
+      const r2 = await invoke(olderStr);
+      expect(r2.status).toBe(200);
+      expect(
+        _profileUpdates.some(
+          (u) => u.id === "u_exp" && u.payload.subscription_status === "past_due"
+        )
+      ).toBe(false);
+      const skipped = warnSpy.mock.calls
+        .flat()
+        .some((a: unknown) => typeof a === "string" && a.includes("superseded by newer"));
+      expect(skipped).toBe(true);
+    });
+
+    it("a mutating event still 200s and is marked processed even if the recency-marker write fails (migration 022 not yet applied)", async () => {
+      _profiles = [{ id: "u_pre", stripe_customer_id: "cus_pre" }];
+      _recencyMarkerError = true; // event_created_at column does not exist yet
+      const event = {
+        id: "evt_pre_migrate",
+        type: "customer.subscription.updated",
+        created: 1_700_030_000,
+        data: {
+          object: {
+            customer: "cus_pre",
+            status: "active",
+            items: { data: [{ price: { id: "price_pro_test" } }] },
+          },
+        },
+      };
+      const { status } = await invoke(event);
+      // Ack succeeds — the marker failure must not break the webhook…
+      expect(status).toBe(200);
+      const row = _ledger.find((r) => r.event_id === "evt_pre_migrate");
+      // …the claim still flips to 'processed' (status flip never touches the
+      //   column), so Stripe is not forced to retry a fully-applied event…
+      expect(row?.status).toBe("processed");
+      // …and the billing mutation still applied.
+      expect(
+        _profileUpdates.some(
+          (u) => u.id === "u_pre" && u.payload.subscription_status === "active"
+        )
+      ).toBe(true);
+      // The degraded-gate condition was surfaced.
+      const logged = errorSpy.mock.calls
+        .flat()
+        .some((a: unknown) => typeof a === "string" && a.includes("recency marker"));
+      expect(logged).toBe(true);
     });
   });
 

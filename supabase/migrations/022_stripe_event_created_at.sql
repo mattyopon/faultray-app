@@ -12,28 +12,36 @@
 --
 -- 設計:
 --   - processed_stripe_events に event_created_at (= Stripe event.created を
---     timestamptz 化した値) を追加。webhook は claim INSERT 時にこの値を書く。
---   - 副作用適用前に、同一 customer_id で既に status='processed' になっている
---     行の最大 event_created_at と比較し、incoming event の方が古ければ
---     副作用を skip (= 200 ack)。これにより per-customer の高水位ガードを
---     index (idx_processed_stripe_events_customer) 経由で安価に実現する。
---   - 既存行は event_created_at = processed_at で backfill (近似)。これらは
---     既に副作用適用済なので high-water mark として機能すれば十分。
---   - NULL 許容: event.created を持たない将来の event 形でも INSERT が壊れない
---     ように nullable のままにする (gate は NULL を「比較不能 = 適用」に倒す)。
+--     timestamptz 化した値) を nullable で追加。
+--   - webhook は **実際に billing mutation を適用した event のみ** success path
+--     でこの値を書く (claim INSERT 時には書かない)。これにより:
+--       * no-op パス (payment_failed attempt<2 / one-off invoice / unmapped /
+--         unhandled type) が high-water mark にならず、遅延到着した古い実更新を
+--         握りつぶさない (Codex review)。
+--       * claim INSERT がこの列を参照しないため、本マイグレーション適用前に
+--         アプリがデプロイされても claim が unknown-column で 500 しない
+--         (deploy-ordering, Codex review)。
+--   - 副作用適用前に、同一 customer_id で既に status='processed' かつ
+--     event_created_at が non-null な行の最大値と比較し、incoming event の方が
+--     古ければ副作用を skip (= 200 ack)。per-customer の高水位ガードを下記
+--     partial index 経由で安価に実現する。
+--   - 既存行は backfill しない (NULL のまま)。processed_at は「受信時刻」であり
+--     Stripe の真の event.created より後になり得るため、これを high-water mark に
+--     使うと、後から到着した「実際にはより新しい」event が人工的に膨らんだ値と
+--     比較されて恒久的に skip される (Codex review)。NULL 行は recency 比較から
+--     除外されるため、移行直後の active customer は次の mutating event で自然に
+--     高水位を確立する (それまでは fail-open = 適用)。
 -- ----------------------------------------------------------------------------
 
 alter table public.processed_stripe_events
   add column if not exists event_created_at timestamptz;
 
--- 既存行は処理済なので processed_at を high-water mark の近似として backfill。
-update public.processed_stripe_events
-  set event_created_at = processed_at
-  where event_created_at is null;
-
 -- per-customer recency lookup を支える partial index。
 -- (customer_id, event_created_at desc) で「この customer の最新適用済 event」を
--- 1 行で引けるようにする。customer_id NULL 行 (one-off invoice 等) は対象外。
+-- 1 行で引けるようにする。customer_id NULL 行 (one-off invoice 等) と、recency
+-- marker 未記録の no-op / 履歴行 (event_created_at NULL) は対象外。
 create index if not exists idx_processed_stripe_events_customer_recency
   on public.processed_stripe_events (customer_id, event_created_at desc)
-  where customer_id is not null and status = 'processed';
+  where customer_id is not null
+    and status = 'processed'
+    and event_created_at is not null;
