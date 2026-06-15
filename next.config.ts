@@ -59,20 +59,11 @@ const nextConfig: NextConfig = {
   // by default; setting this to false removes it.
   // ZAP 10037 "Server Leaks Information via X-Powered-By" — Refs mattyopon/faultray#172
   poweredByHeader: false,
-  // Optional Upstash backend for src/lib/rate-limit.ts: these packages are
-  // intentionally NOT in package.json (operator installs them to opt in).
-  // Keep them out of the server bundle so the dynamic import becomes a
-  // runtime require (guarded by try/catch), and suppress the expected
-  // module-not-found build warning when they are absent.
+  // #116: the Upstash rate-limit backend (@upstash/ratelimit + @upstash/redis)
+  // are first-class dependencies. Keep them server-external so they are loaded
+  // at runtime (only when UPSTASH_* env is configured, via the lazy dynamic
+  // import in src/lib/rate-limit.ts) rather than bundled into every server chunk.
   serverExternalPackages: ["@upstash/ratelimit", "@upstash/redis"],
-  turbopack: {
-    ignoreIssue: [
-      {
-        path: "**/src/lib/rate-limit.ts",
-        title: /Module not found/,
-      },
-    ],
-  },
   async headers() {
     // #88 (P3-4): CORS allowlist を server-only env で管理する。
     //   ALLOWED_ORIGIN : single origin。next.config.ts の static header は
