@@ -543,6 +543,25 @@ export async function POST(request: Request) {
             `Bootstrap failed: ${bootstrap.reason} (user_id=${userId} customer=${customerId})`
           );
         }
+        // #82 / P2-4 (review): checkout also records a recency marker, so it
+        // must be gated like the other mutating paths. In a repeat-checkout that
+        // reuses an existing Stripe customer, a delayed older
+        // checkout.session.completed could otherwise re-activate a profile whose
+        // newer subscription.deleted / invoice event was already applied.
+        if (
+          await isSupersededByNewerEvent(
+            dedupeAdmin,
+            customerId,
+            event.id,
+            eventCreatedAt
+          )
+        ) {
+          console.warn(
+            `[stripe/webhook] checkout.session.completed: superseded by newer ` +
+              `event for customer=${customerId} — skipping stale activation.`
+          );
+          break;
+        }
         await updateUserPlan(userId, plan, "active");
         appliedMutation = true;
         console.info(

@@ -652,6 +652,49 @@ describe("Stripe webhook hardening (#77 / #82)", () => {
         .some((a: unknown) => typeof a === "string" && a.includes("recency marker"));
       expect(logged).toBe(true);
     });
+
+    it("an older checkout.session.completed does NOT re-activate a profile after a newer event (repeat checkout)", async () => {
+      // Repeat checkout reusing an already-bootstrapped customer.
+      _profiles = [
+        { id: "u_co", stripe_customer_id: "cus_co", plan: "free", subscription_status: "canceled" },
+      ];
+      // A newer customer.subscription.deleted was already applied for cus_co.
+      _ledger = [
+        {
+          event_id: "evt_cancel_new",
+          event_type: "customer.subscription.deleted",
+          customer_id: "cus_co",
+          status: "processed",
+          event_created_at: new Date(1_700_040_000 * 1000).toISOString(),
+          updated_at: nowIso(),
+        },
+      ];
+      const event = {
+        id: "evt_checkout_old",
+        type: "checkout.session.completed",
+        created: 1_700_039_000, // older than the cancellation
+        data: {
+          object: {
+            metadata: { user_id: "u_co", plan: "pro" },
+            customer: "cus_co",
+          },
+        },
+      };
+      const { status } = await invoke(event);
+      expect(status).toBe(200);
+      // Stale activation skipped: no write flipping the profile back to active/pro.
+      expect(
+        _profileUpdates.some(
+          (u) =>
+            u.id === "u_co" &&
+            (u.payload.plan === "pro" || u.payload.subscription_status === "active")
+        )
+      ).toBe(false);
+      const skipped = warnSpy.mock.calls
+        .flat()
+        .some((a: unknown) => typeof a === "string" && a.includes("superseded by newer"));
+      expect(skipped).toBe(true);
+    });
   });
 
   // ── Finding 3: #77 P2-3 — customer mapping miss is surfaced ───────────────
