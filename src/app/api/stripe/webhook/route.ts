@@ -138,6 +138,60 @@ async function updateUserByCustomerId(
   await updateUserPlan(userId, plan, subscriptionStatus);
 }
 
+/**
+ * #82 / P2-4 (epic #77): last-write-wins / TOCTOU guard.
+ *
+ * 並列イベント (例: `invoice.payment_succeeded` と `customer.subscription.deleted`
+ * が同時到着) や遅延リトライで、古い event が新しい state を上書きすると
+ * `profiles.plan` / `subscription_status` が Stripe の真の最新と乖離する。
+ *
+ * 防御: 同一 customer で既に status='processed' になっている event の最大
+ * `event_created_at` を引き、incoming event の `event.created` がそれより
+ * **古い**場合 (= 既に新しい event を適用済) は副作用を skip する。等しい場合は
+ * 適用を許す (同秒の連続更新を取りこぼさないため。idempotency ledger が二重
+ * 適用自体は別途防ぐ)。
+ *
+ * Fail-open 方針: high-water mark の読み取りに失敗した場合や event.created が
+ * 欠落している場合は **適用を許す** (= false を返す)。recency gate は二次防御で
+ * あり、ここで throw して billing 更新を止める方が害が大きいと判断。読み取り
+ * エラーは log に残す。
+ */
+async function isSupersededByNewerEvent(
+  admin: Awaited<ReturnType<typeof getSupabaseAdmin>>,
+  customerId: string,
+  currentEventId: string,
+  incomingCreatedAt: Date | null
+): Promise<boolean> {
+  if (!incomingCreatedAt) {
+    // event.created を解決できない → 比較不能。gate を fail-open。
+    return false;
+  }
+  const { data, error } = await admin
+    .from("processed_stripe_events")
+    .select("event_created_at")
+    .eq("customer_id", customerId)
+    .eq("status", "processed")
+    .neq("event_id", currentEventId)
+    .order("event_created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error(
+      "[stripe/webhook] recency lookup failed (fail-open, applying):",
+      error.message
+    );
+    return false;
+  }
+  const latestApplied = data?.event_created_at
+    ? new Date(data.event_created_at as string)
+    : null;
+  if (!latestApplied || Number.isNaN(latestApplied.getTime())) {
+    return false;
+  }
+  // incoming が strictly older → 既に新しい state を適用済なので skip。
+  return incomingCreatedAt.getTime() < latestApplied.getTime();
+}
+
 // #79 P1: bootstrap path専用。`checkout.session.completed` で初めて customerId が
 // profile に紐づく時に呼ぶ。
 //   - profile が存在しない → profile_not_found (500 retry)
@@ -262,6 +316,14 @@ export async function POST(request: Request) {
       ? ((event.data.object as { customer?: string }).customer ?? null)
       : null;
 
+  // #82 / P2-4: event.created (Unix seconds) を timestamptz として ledger に
+  // 保存し、per-customer recency gate の比較対象にする。Stripe の event は常に
+  // `created` を持つが、欠落・不正値の場合は null にして gate を fail-open。
+  const eventCreatedAt: Date | null =
+    typeof event.created === "number" && Number.isFinite(event.created)
+      ? new Date(event.created * 1000)
+      : null;
+
   let claimedNew = false;
   {
     const { error: insertError } = await dedupeAdmin
@@ -271,6 +333,7 @@ export async function POST(request: Request) {
         event_type: event.type,
         customer_id: eventCustomerId,
         status: "processing",
+        event_created_at: eventCreatedAt ? eventCreatedAt.toISOString() : null,
       });
 
     if (!insertError) {
@@ -481,6 +544,22 @@ export async function POST(request: Request) {
         const resolvedPlan: PlanTier =
           (status === "active" || status === "trialing") && plan ? plan : "free";
 
+        // #82 / P2-4: 古い event が新しい state を上書きしないよう gate。
+        if (
+          await isSupersededByNewerEvent(
+            dedupeAdmin,
+            customerId,
+            event.id,
+            eventCreatedAt
+          )
+        ) {
+          console.warn(
+            `[stripe/webhook] customer.subscription.updated: superseded by newer ` +
+              `event for customer=${customerId} — skipping stale update.`
+          );
+          break;
+        }
+
         await updateUserByCustomerId(customerId, resolvedPlan, status);
         console.info(
           `[stripe/webhook] customer.subscription.updated: customer=${customerId} status=${status} plan=${resolvedPlan}`
@@ -508,12 +587,42 @@ export async function POST(request: Request) {
 
         const userId = await resolveUserByCustomerId(customerId);
         if (!userId) {
-          console.info(
-            `[stripe/webhook] customer.subscription.deleted: customer=${customerId} ` +
-              `not mapped — likely account/delete flow, ack-ing without mutation.`
+          // #77 P2-3: customer_id mapping miss を silent に握りつぶさない。
+          // /api/account/delete は profile を先に消してから Stripe を cancel する
+          // ため、その flow の deleted event は profile 不在で正常に到達する。よって
+          // 500 retry で Stripe を 3 日間空回りさせるのは過剰だが、「mapping miss を
+          // 観測できないまま 200 で消す」のも #77 P2-3 が指摘する穴。
+          //
+          // 折衷: 200 ack は維持しつつ (account/delete flow を壊さない)、構造化
+          // `console.warn` で **必ず surface** し、`unmapped_customer` の可視性を
+          // 確保する。recently-bootstrapped でない customer の deleted が継続的に
+          // 来る場合は alert / dead-letter のフックポイントになる。
+          console.warn(
+            `[stripe/webhook] customer.subscription.deleted: UNMAPPED customer=${customerId} ` +
+              `event=${event.id} — no profile maps to this stripe_customer_id. ` +
+              `Likely the account/delete flow (profile removed before Stripe cancel), ` +
+              `but if this customer was never deleted in-app this is a lost cancellation ` +
+              `(#77 P2-3). Ack-ing 200 to avoid retry storms; review ledger for orphans.`
           );
           break;
         }
+
+        // #82 / P2-4: stale な deleted が新しい active state を上書きしないよう gate。
+        if (
+          await isSupersededByNewerEvent(
+            dedupeAdmin,
+            customerId,
+            event.id,
+            eventCreatedAt
+          )
+        ) {
+          console.warn(
+            `[stripe/webhook] customer.subscription.deleted: superseded by newer ` +
+              `event for customer=${customerId} — skipping stale cancel.`
+          );
+          break;
+        }
+
         await updateUserPlan(userId, "free", "canceled");
         console.info(
           `[stripe/webhook] customer.subscription.deleted: customer=${customerId} user=${userId}`
@@ -568,6 +677,23 @@ export async function POST(request: Request) {
             }
           }
 
+          // #82 / P2-4: 古い payment_failed が新しい active/canceled state を
+          // past_due に巻き戻さないよう gate。
+          if (
+            await isSupersededByNewerEvent(
+              dedupeAdmin,
+              customerId,
+              event.id,
+              eventCreatedAt
+            )
+          ) {
+            console.warn(
+              `[stripe/webhook] invoice.payment_failed: superseded by newer ` +
+                `event for customer=${customerId} — skipping stale past_due.`
+            );
+            break;
+          }
+
           await updateUserByCustomerId(customerId, resolvedPlan, "past_due");
           // TODO: trigger email notification via RETAIN-01 email system when implemented
         }
@@ -605,6 +731,22 @@ export async function POST(request: Request) {
             console.warn(
               `[stripe/webhook] payment_succeeded: unresolved plan for priceId=${priceId ?? "(missing)"}; preserving existing plan`
             );
+          }
+          // #82 / P2-4: 古い payment_succeeded が新しい canceled/past_due state を
+          // active に巻き戻さないよう gate。
+          if (
+            await isSupersededByNewerEvent(
+              dedupeAdmin,
+              customerId,
+              event.id,
+              eventCreatedAt
+            )
+          ) {
+            console.warn(
+              `[stripe/webhook] invoice.payment_succeeded: superseded by newer ` +
+                `event for customer=${customerId} — skipping stale active.`
+            );
+            break;
           }
           await updateUserByCustomerId(customerId, resolvedPlan, "active");
           console.info(
