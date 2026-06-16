@@ -106,6 +106,18 @@ function isUndefinedColumnError(error: {
  *   - migration 022 not applied yet (`subscription_event_at` column missing) →
  *     do not brick the webhook during the deploy window; the guard re-engages
  *     automatically once the column exists.
+ *
+ * Accepted residual — same-second events: Stripe's `event.created` is
+ * whole-second resolution and carries no sub-second / sequence order, so two
+ * DISTINCT mutating events for the same customer in the same second are
+ * genuinely unordered. The predicate is `<=` (newer-OR-equal), so both apply
+ * and the last writer wins for that second. We deliberately do not invent a
+ * tie-breaker: a strict `<` would merely flip which arrival order loses, and a
+ * status-priority rule would bake in a product decision that can be wrong (e.g.
+ * a legitimate same-second reactivation). The ledger still prevents
+ * double-applying the *same* event, the window is one second, and any resulting
+ * skew self-corrects on the next (later-second) event for the customer. (Codex
+ * review 2026-06-16; product decision: accept + document.)
  */
 async function updateUserPlan(
   userId: string,
@@ -144,7 +156,9 @@ async function updateUserPlan(
     .from("profiles")
     .update({ ...updatePayload, subscription_event_at: incomingIso })
     .eq("id", userId)
-    // Apply only if this event is newer-or-equal to the last applied one.
+    // Apply only if this event is newer-or-equal to the last applied one. The
+    // `lte` (newer-OR-equal) admits same-second events both ways by design —
+    // see the "Accepted residual — same-second events" note above.
     .or(`subscription_event_at.is.null,subscription_event_at.lte.${incomingIso}`)
     .select("id");
 
