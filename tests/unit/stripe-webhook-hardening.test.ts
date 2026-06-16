@@ -682,6 +682,73 @@ describe("Stripe webhook hardening (#77 / #82)", () => {
       expect(warnIncludes(warnSpy, "not active/trialing")).toBe(true);
     });
 
+    it("invoice.payment_failed for a CANCELED subscription does not mark the profile past_due or advance the high-water", async () => {
+      _profiles = [
+        {
+          id: "u_pf_cxl",
+          stripe_customer_id: "cus_pf_cxl",
+          plan: "free",
+          subscription_status: "canceled",
+        },
+      ];
+      _subscriptionStatus = "canceled"; // final/outstanding invoice's dunning fails after cancellation
+      const event = {
+        id: "evt_pay_failed_after_cancel",
+        type: "invoice.payment_failed",
+        created: 1_700_055_000,
+        data: {
+          object: {
+            customer: "cus_pf_cxl",
+            attempt_count: 3, // >= 2 → would normally mark past_due
+            parent: { subscription_details: { subscription: "sub_pf_cxl" } },
+          },
+        },
+      };
+      const { status } = await invoke(event);
+      expect(status).toBe(200);
+      // Not flipped to past_due…
+      expect(
+        _profileUpdates.some(
+          (u) => u.id === "u_pf_cxl" && u.payload.subscription_status === "past_due"
+        )
+      ).toBe(false);
+      // …and the high-water was NOT advanced, so a later/delayed delete still applies.
+      expect(_profiles[0].subscription_event_at ?? null).toBeNull();
+      expect(warnIncludes(warnSpy, "(terminal) — not marking past_due")).toBe(true);
+    });
+
+    it("invoice.payment_failed for an ACTIVE subscription still marks the profile past_due (dunning)", async () => {
+      _profiles = [
+        {
+          id: "u_pf_act",
+          stripe_customer_id: "cus_pf_act",
+          plan: "pro",
+          subscription_status: "active",
+        },
+      ];
+      _subscriptionStatus = "active"; // first failure while still active — legitimate dunning
+      const event = {
+        id: "evt_pay_failed_active",
+        type: "invoice.payment_failed",
+        created: 1_700_056_000,
+        data: {
+          object: {
+            customer: "cus_pf_act",
+            attempt_count: 2,
+            parent: { subscription_details: { subscription: "sub_pf_act" } },
+          },
+        },
+      };
+      const { status } = await invoke(event);
+      expect(status).toBe(200);
+      // The non-terminal path is preserved: past_due IS written.
+      expect(
+        _profileUpdates.some(
+          (u) => u.id === "u_pf_act" && u.payload.subscription_status === "past_due"
+        )
+      ).toBe(true);
+    });
+
     it("falls open (applies) when subscription_event_at column is missing (migration 022 not yet applied)", async () => {
       _profiles = [{ id: "u_pre", stripe_customer_id: "cus_pre" }];
       _profilesColumnMissing = true; // guarded UPDATE rejected with unknown column

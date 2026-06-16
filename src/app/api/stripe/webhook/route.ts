@@ -686,6 +686,26 @@ export async function POST(request: Request) {
           if (subscriptionId) {
             try {
               const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+              // #82 / P2-4 review (Codex): mirror the payment_succeeded guard. A
+              // payment_failed can arrive for an already-canceled subscription —
+              // e.g. the final dunning attempt on an outstanding invoice fails
+              // *after* the subscription was canceled. Writing past_due here would
+              // advance the recency high-water, after which the (older-created)
+              // customer.subscription.deleted is gated out as stale and the profile
+              // is left in a paid-looking past_due state instead of canceled. For
+              // terminal subscription states, leave the authoritative status to the
+              // lifecycle handlers (deleted) and do NOT mutate or bump the
+              // high-water. (active/past_due/unpaid are all legitimate here and
+              // must still mark past_due, so this is a terminal-state deny-list,
+              // not the active/trialing allow-list used by payment_succeeded.)
+              const subStatus = subscription.status;
+              if (subStatus === "canceled" || subStatus === "incomplete_expired") {
+                console.warn(
+                  `[stripe/webhook] invoice.payment_failed: subscription=${subscriptionId} ` +
+                    `status=${subStatus} (terminal) — not marking past_due.`
+                );
+                break;
+              }
               const priceId = subscription.items.data[0]?.price?.id;
               resolvedPlan = priceId ? planTierFromPriceId(priceId) : null;
               if (resolvedPlan === null) {
