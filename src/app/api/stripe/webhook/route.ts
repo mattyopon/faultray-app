@@ -727,6 +727,24 @@ export async function POST(request: Request) {
           const subscription = await stripe.subscriptions.retrieve(
             subscriptionId
           );
+          // #82 / P2-4 review (Codex): a paid invoice can arrive for a
+          // NON-active subscription — e.g. an outstanding/final invoice settled
+          // after the subscription was already canceled. Hardcoding
+          // status='active' here would reactivate a canceled customer AND
+          // advance the recency high-water, after which the (older-created)
+          // customer.subscription.deleted is gated out as stale and the profile
+          // stays active. Only mark active when the subscription truly is
+          // active/trialing; otherwise leave the authoritative status to the
+          // subscription lifecycle handlers (updated/deleted) and do not bump
+          // the high-water.
+          const subStatus = subscription.status;
+          if (subStatus !== "active" && subStatus !== "trialing") {
+            console.warn(
+              `[stripe/webhook] invoice.payment_succeeded: subscription=${subscriptionId} ` +
+                `status=${subStatus} (not active/trialing) — not marking active.`
+            );
+            break;
+          }
           const priceId = subscription.items.data[0]?.price?.id;
           const plan = priceId ? planTierFromPriceId(priceId) : null;
           // #112: don't fall back to "pro" — that silently rewrites the

@@ -39,9 +39,8 @@ vi.mock("@/lib/rate-limit", () => ({
 // short-circuit it). subscriptions.retrieve returns a staged subscription.
 let _nextEvent: unknown = null;
 let _constructThrows = false;
-const _retrievedSubscription = {
-  items: { data: [{ price: { id: "price_pro_test" } }] },
-};
+// Status returned by subscriptions.retrieve (tests override per case).
+let _subscriptionStatus = "active";
 vi.mock("stripe", () => {
   class StripeStub {
     webhooks = {
@@ -51,7 +50,10 @@ vi.mock("stripe", () => {
       },
     };
     subscriptions = {
-      retrieve: vi.fn(async (_id: string) => _retrievedSubscription),
+      retrieve: vi.fn(async (_id: string) => ({
+        status: _subscriptionStatus,
+        items: { data: [{ price: { id: "price_pro_test" } }] },
+      })),
     };
     constructor(..._args: unknown[]) {}
   }
@@ -323,6 +325,7 @@ describe("Stripe webhook hardening (#77 / #82)", () => {
     _profileUpdates.length = 0;
     _ledgerInsertConflict = false;
     _profilesColumnMissing = false;
+    _subscriptionStatus = "active";
     _nextEvent = null;
     _constructThrows = false;
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
@@ -643,6 +646,40 @@ describe("Stripe webhook hardening (#77 / #82)", () => {
         )
       ).toBe(false);
       expect(warnIncludes(warnSpy, "superseded by newer")).toBe(true);
+    });
+
+    it("invoice.payment_succeeded for a CANCELED subscription does not mark the profile active or advance the high-water", async () => {
+      _profiles = [
+        {
+          id: "u_cxl",
+          stripe_customer_id: "cus_cxl",
+          plan: "free",
+          subscription_status: "canceled",
+        },
+      ];
+      _subscriptionStatus = "canceled"; // final/outstanding invoice paid after cancellation
+      const event = {
+        id: "evt_pay_after_cancel",
+        type: "invoice.payment_succeeded",
+        created: 1_700_050_000,
+        data: {
+          object: {
+            customer: "cus_cxl",
+            parent: { subscription_details: { subscription: "sub_cxl" } },
+          },
+        },
+      };
+      const { status } = await invoke(event);
+      expect(status).toBe(200);
+      // Not reactivated…
+      expect(
+        _profileUpdates.some(
+          (u) => u.id === "u_cxl" && u.payload.subscription_status === "active"
+        )
+      ).toBe(false);
+      // …and the high-water was NOT advanced, so a later/delayed delete still applies.
+      expect(_profiles[0].subscription_event_at ?? null).toBeNull();
+      expect(warnIncludes(warnSpy, "not active/trialing")).toBe(true);
     });
 
     it("falls open (applies) when subscription_event_at column is missing (migration 022 not yet applied)", async () => {
