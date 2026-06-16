@@ -57,6 +57,24 @@ function planTierFromPriceId(priceId: string): PlanTier | null {
   return null;
 }
 
+// #144 review (Codex): the checkout route creates subscriptions with INLINE
+// `price_data` (src/app/api/stripe/checkout/route.ts), so Stripe mints a fresh,
+// generated price ID that is NOT one of the configured STRIPE_*_PRICE_IDS —
+// planTierFromPriceId() therefore returns null for essentially every
+// checkout-created subscription. The authoritative tier for those is carried in
+// the subscription's `metadata.plan` (set by checkout's
+// subscription_data.metadata). Trusting metadata for the PLAN tier is safe and
+// consistent with checkout.session.completed (which already trusts
+// session.metadata.plan); user IDENTITY is still resolved only via customer_id
+// (the #79 boundary), never metadata. Only paid tiers are accepted — a missing
+// or "free"/garbage value yields null so callers preserve the existing plan.
+function planTierFromMetadata(value: string | null | undefined): PlanTier | null {
+  if (value === "starter" || value === "pro" || value === "business") {
+    return value;
+  }
+  return null;
+}
+
 async function getSupabaseAdmin() {
   const { createClient } = await import("@supabase/supabase-js");
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -587,18 +605,31 @@ export async function POST(request: Request) {
         }
         const status = subscription.status; // active | past_due | canceled | ...
 
-        // Determine plan from first price item
+        // Determine plan: prefer the configured price-ID mapping, then fall back
+        // to the subscription's metadata.plan. #144 (Codex): checkout creates
+        // subscriptions with inline price_data, so the price ID is unmapped —
+        // without the metadata fallback an active checkout subscription resolves
+        // to "free", which downgrades a paid customer AND advances the recency
+        // high-water, gating out the older checkout.session.completed that
+        // carried the real plan.
         const priceId = subscription.items.data[0]?.price?.id;
-        const plan = priceId ? planTierFromPriceId(priceId) : null;
+        const plan =
+          (priceId ? planTierFromPriceId(priceId) : null) ??
+          planTierFromMetadata(subscription.metadata?.plan);
 
-        const resolvedPlan: PlanTier =
-          (status === "active" || status === "trialing") && plan ? plan : "free";
+        // active/trialing → keep the paid tier. If it is genuinely unresolvable
+        // (no price mapping, no metadata) pass null to PRESERVE the existing plan
+        // rather than forcing "free" — never downgrade an active subscription on
+        // an identification miss (consistent with #112). Non-active states revoke
+        // entitlement to "free".
+        const resolvedPlan: PlanTier | null =
+          status === "active" || status === "trialing" ? plan : "free";
 
         // #82 / P2-4: 古い event が新しい state を上書きしないよう updateUserPlan 内の
         // DB-atomic recency guard で防ぐ。
         await updateUserByCustomerId(customerId, resolvedPlan, status, eventCreatedAt);
         console.info(
-          `[stripe/webhook] customer.subscription.updated: customer=${customerId} status=${status} plan=${resolvedPlan}`
+          `[stripe/webhook] customer.subscription.updated: customer=${customerId} status=${status} plan=${resolvedPlan ?? "(preserved)"}`
         );
         break;
       }
@@ -678,45 +709,58 @@ export async function POST(request: Request) {
           // NOTE (#31): replaced `as any` cast with InvoiceWithSubscription.
           const subscriptionId: string | null = extractSubscriptionId(invoice);
 
-          // #112: never default to a paid tier here. When subscription /
-          // priceId resolution fails, keep the existing plan (null) and only
-          // flip status to past_due. Transient Stripe retrieve errors are
-          // re-thrown so Stripe retries, instead of silently downgrading.
+          // #144 review (Codex): a failed invoice with no subscription is a
+          // one-off / customer invoice that does NOT describe subscription state.
+          // Marking the profile past_due and advancing profiles.subscription_event_at
+          // for it could record a newer high-water that gates out a later (older-
+          // created) subscription lifecycle event — e.g. a cancellation — as stale.
+          // Mirror payment_succeeded's subscription-only guard: ack without
+          // touching the profile or the high-water.
+          if (!subscriptionId) {
+            console.warn(
+              `[stripe/webhook] invoice.payment_failed: customer=${customerId} ` +
+                `attempt=${attemptCount} has no subscription — ack without marking past_due.`
+            );
+            break;
+          }
+
+          // #112: never default to a paid tier here. When priceId resolution
+          // fails, keep the existing plan (null) and only flip status to
+          // past_due. Transient Stripe retrieve errors are re-thrown so Stripe
+          // retries, instead of silently downgrading.
           let resolvedPlan: PlanTier | null = null;
-          if (subscriptionId) {
-            try {
-              const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-              // #82 / P2-4 review (Codex): mirror the payment_succeeded guard. A
-              // payment_failed can arrive for an already-canceled subscription —
-              // e.g. the final dunning attempt on an outstanding invoice fails
-              // *after* the subscription was canceled. Writing past_due here would
-              // advance the recency high-water, after which the (older-created)
-              // customer.subscription.deleted is gated out as stale and the profile
-              // is left in a paid-looking past_due state instead of canceled. For
-              // terminal subscription states, leave the authoritative status to the
-              // lifecycle handlers (deleted) and do NOT mutate or bump the
-              // high-water. (active/past_due/unpaid are all legitimate here and
-              // must still mark past_due, so this is a terminal-state deny-list,
-              // not the active/trialing allow-list used by payment_succeeded.)
-              const subStatus = subscription.status;
-              if (subStatus === "canceled" || subStatus === "incomplete_expired") {
-                console.warn(
-                  `[stripe/webhook] invoice.payment_failed: subscription=${subscriptionId} ` +
-                    `status=${subStatus} (terminal) — not marking past_due.`
-                );
-                break;
-              }
-              const priceId = subscription.items.data[0]?.price?.id;
-              resolvedPlan = priceId ? planTierFromPriceId(priceId) : null;
-              if (resolvedPlan === null) {
-                console.warn(
-                  `[stripe/webhook] payment_failed: unresolved plan for priceId=${priceId ?? "(missing)"}; preserving existing plan`
-                );
-              }
-            } catch (err) {
-              console.error("[stripe/webhook] Failed to retrieve subscription for payment_failed:", err);
-              throw err;
+          try {
+            const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+            // #82 / P2-4 review (Codex): mirror the payment_succeeded guard. A
+            // payment_failed can arrive for an already-canceled subscription —
+            // e.g. the final dunning attempt on an outstanding invoice fails
+            // *after* the subscription was canceled. Writing past_due here would
+            // advance the recency high-water, after which the (older-created)
+            // customer.subscription.deleted is gated out as stale and the profile
+            // is left in a paid-looking past_due state instead of canceled. For
+            // terminal subscription states, leave the authoritative status to the
+            // lifecycle handlers (deleted) and do NOT mutate or bump the
+            // high-water. (active/past_due/unpaid are all legitimate here and
+            // must still mark past_due, so this is a terminal-state deny-list,
+            // not the active/trialing allow-list used by payment_succeeded.)
+            const subStatus = subscription.status;
+            if (subStatus === "canceled" || subStatus === "incomplete_expired") {
+              console.warn(
+                `[stripe/webhook] invoice.payment_failed: subscription=${subscriptionId} ` +
+                  `status=${subStatus} (terminal) — not marking past_due.`
+              );
+              break;
             }
+            const priceId = subscription.items.data[0]?.price?.id;
+            resolvedPlan = priceId ? planTierFromPriceId(priceId) : null;
+            if (resolvedPlan === null) {
+              console.warn(
+                `[stripe/webhook] payment_failed: unresolved plan for priceId=${priceId ?? "(missing)"}; preserving existing plan`
+              );
+            }
+          } catch (err) {
+            console.error("[stripe/webhook] Failed to retrieve subscription for payment_failed:", err);
+            throw err;
           }
 
           // #82 / P2-4: 古い payment_failed が新しい active/canceled state を
@@ -766,12 +810,19 @@ export async function POST(request: Request) {
             break;
           }
           const priceId = subscription.items.data[0]?.price?.id;
-          const plan = priceId ? planTierFromPriceId(priceId) : null;
           // #112: don't fall back to "pro" — that silently rewrites the
           // entitlement of starter/business customers whose price ID isn't in
           // our local mapping. Preserve the existing plan instead and only flip
           // status to "active". Operators can fix the mapping and replay.
-          const resolvedPlan: PlanTier | null = plan;
+          // #144 (Codex): checkout uses inline price_data so the generated price
+          // ID is unmapped; recover the trusted tier from the subscription's
+          // metadata.plan so a payment_succeeded processed BEFORE the older
+          // checkout.session.completed records the correct plan + high-water,
+          // instead of preserving the old/free plan and then gating the checkout
+          // event out as stale.
+          const resolvedPlan: PlanTier | null =
+            (priceId ? planTierFromPriceId(priceId) : null) ??
+            planTierFromMetadata(subscription.metadata?.plan);
           if (resolvedPlan === null) {
             console.warn(
               `[stripe/webhook] payment_succeeded: unresolved plan for priceId=${priceId ?? "(missing)"}; preserving existing plan`

@@ -41,6 +41,11 @@ let _nextEvent: unknown = null;
 let _constructThrows = false;
 // Status returned by subscriptions.retrieve (tests override per case).
 let _subscriptionStatus = "active";
+// Price ID + metadata returned by subscriptions.retrieve (tests override per
+// case). Checkout creates subs with inline price_data → a generated, UNMAPPED
+// price ID and the real tier carried in metadata.plan (#144).
+let _subscriptionPriceId = "price_pro_test";
+let _subscriptionMetadata: Record<string, string> = {};
 vi.mock("stripe", () => {
   class StripeStub {
     webhooks = {
@@ -52,7 +57,8 @@ vi.mock("stripe", () => {
     subscriptions = {
       retrieve: vi.fn(async (_id: string) => ({
         status: _subscriptionStatus,
-        items: { data: [{ price: { id: "price_pro_test" } }] },
+        items: { data: [{ price: { id: _subscriptionPriceId } }] },
+        metadata: _subscriptionMetadata,
       })),
     };
     constructor(..._args: unknown[]) {}
@@ -326,6 +332,8 @@ describe("Stripe webhook hardening (#77 / #82)", () => {
     _ledgerInsertConflict = false;
     _profilesColumnMissing = false;
     _subscriptionStatus = "active";
+    _subscriptionPriceId = "price_pro_test";
+    _subscriptionMetadata = {};
     _nextEvent = null;
     _constructThrows = false;
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
@@ -780,6 +788,180 @@ describe("Stripe webhook hardening (#77 / #82)", () => {
           (a: unknown) => typeof a === "string" && a.includes("subscription_event_at missing")
         );
       expect(logged).toBe(true);
+    });
+  });
+
+  // ── #144 review: inline price_data plans + non-subscription invoices ──────
+  describe("#144 review: checkout inline price_data plan resolution", () => {
+    it("subscription.updated for an inline-price_data (unmapped) active sub resolves the plan from metadata, not free", async () => {
+      _profiles = [
+        {
+          id: "u_inl",
+          stripe_customer_id: "cus_inl",
+          plan: "free",
+          subscription_status: null,
+        },
+      ];
+      // Checkout creates the sub with inline price_data → generated, UNMAPPED
+      // price ID; the real tier is in subscription metadata.plan.
+      const event = {
+        id: "evt_sub_updated_inline",
+        type: "customer.subscription.updated",
+        created: 1_700_060_000,
+        data: {
+          object: {
+            customer: "cus_inl",
+            status: "active",
+            items: { data: [{ price: { id: "price_inline_generated" } }] },
+            metadata: { plan: "pro", user_id: "u_inl" },
+          },
+        },
+      };
+      const { status } = await invoke(event);
+      expect(status).toBe(200);
+      // Resolved to pro (from metadata) — NOT downgraded to free…
+      expect(
+        _profileUpdates.some(
+          (u) => u.id === "u_inl" && u.payload.plan === "pro"
+        )
+      ).toBe(true);
+      expect(
+        _profileUpdates.some(
+          (u) => u.id === "u_inl" && u.payload.plan === "free"
+        )
+      ).toBe(false);
+      // …and the high-water advanced to this event.
+      expect(_profiles[0].subscription_event_at).toBe(evIso(1_700_060_000));
+    });
+
+    it("subscription.updated for an active sub with NO mapping and NO metadata preserves the plan (never forces free)", async () => {
+      _profiles = [
+        {
+          id: "u_keep",
+          stripe_customer_id: "cus_keep",
+          plan: "business",
+          subscription_status: "active",
+        },
+      ];
+      const event = {
+        id: "evt_sub_updated_unknown",
+        type: "customer.subscription.updated",
+        created: 1_700_061_000,
+        data: {
+          object: {
+            customer: "cus_keep",
+            status: "active",
+            items: { data: [{ price: { id: "price_inline_generated" } }] },
+            // no metadata.plan → genuinely unresolvable
+          },
+        },
+      };
+      const { status } = await invoke(event);
+      expect(status).toBe(200);
+      // Status still written (active), but plan is NOT forced to free.
+      expect(
+        _profileUpdates.some(
+          (u) => u.id === "u_keep" && u.payload.subscription_status === "active"
+        )
+      ).toBe(true);
+      expect(
+        _profileUpdates.some(
+          (u) => u.id === "u_keep" && u.payload.plan === "free"
+        )
+      ).toBe(false);
+    });
+
+    it("a non-active subscription.updated still downgrades the plan to free", async () => {
+      _profiles = [
+        {
+          id: "u_dwn",
+          stripe_customer_id: "cus_dwn",
+          plan: "pro",
+          subscription_status: "active",
+        },
+      ];
+      const event = {
+        id: "evt_sub_updated_canceled",
+        type: "customer.subscription.updated",
+        created: 1_700_062_000,
+        data: {
+          object: {
+            customer: "cus_dwn",
+            status: "canceled",
+            items: { data: [{ price: { id: "price_pro_test" } }] },
+          },
+        },
+      };
+      const { status } = await invoke(event);
+      expect(status).toBe(200);
+      expect(
+        _profileUpdates.some(
+          (u) => u.id === "u_dwn" && u.payload.plan === "free"
+        )
+      ).toBe(true);
+    });
+
+    it("payment_succeeded for an inline-price_data (unmapped) active sub resolves the plan from metadata", async () => {
+      _profiles = [
+        {
+          id: "u_pay_inl",
+          stripe_customer_id: "cus_pay_inl",
+          plan: "free",
+          subscription_status: null,
+        },
+      ];
+      _subscriptionStatus = "active";
+      _subscriptionPriceId = "price_inline_generated"; // unmapped
+      _subscriptionMetadata = { plan: "business", user_id: "u_pay_inl" };
+      const event = {
+        id: "evt_pay_inline",
+        type: "invoice.payment_succeeded",
+        created: 1_700_063_000,
+        data: {
+          object: {
+            customer: "cus_pay_inl",
+            parent: { subscription_details: { subscription: "sub_pay_inl" } },
+          },
+        },
+      };
+      const { status } = await invoke(event);
+      expect(status).toBe(200);
+      expect(
+        _profileUpdates.some(
+          (u) => u.id === "u_pay_inl" && u.payload.plan === "business"
+        )
+      ).toBe(true);
+      expect(_profiles[0].subscription_event_at).toBe(evIso(1_700_063_000));
+    });
+
+    it("payment_failed with NO subscription does not mark past_due or advance the high-water", async () => {
+      _profiles = [
+        {
+          id: "u_nosub",
+          stripe_customer_id: "cus_nosub",
+          plan: "pro",
+          subscription_status: "active",
+        },
+      ];
+      const event = {
+        id: "evt_pay_failed_nosub",
+        type: "invoice.payment_failed",
+        created: 1_700_064_000,
+        data: {
+          object: {
+            customer: "cus_nosub",
+            attempt_count: 3, // >= 2 → would normally mark past_due
+            // no parent.subscription_details / subscription → one-off invoice
+          },
+        },
+      };
+      const { status } = await invoke(event);
+      expect(status).toBe(200);
+      // No write at all for a non-subscription invoice…
+      expect(_profileUpdates.filter((u) => u.id === "u_nosub")).toHaveLength(0);
+      // …and the high-water is untouched, so a later cancellation still applies.
+      expect(_profiles[0].subscription_event_at ?? null).toBeNull();
+      expect(warnIncludes(warnSpy, "has no subscription")).toBe(true);
     });
   });
 
