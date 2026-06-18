@@ -101,17 +101,25 @@ export async function DELETE(request: Request) {
     ) {
       try {
         const stripe = new Stripe(stripeSecretKey, { timeout: 30000 });
-        // SEC (U7): paginate ALL subscriptions. `list()` returns only the first
-        // page (default 10), so a customer with >10 subs would keep billing.
-        // `for await` auto-paginates; include all statuses and skip already-
-        // canceled ones.
+        // SEC (U7): cancel ALL subscriptions across pages. `list()` returns
+        // only the first page (default 10), so a customer with >10 subs would
+        // keep billing. Paginate explicitly via has_more / starting_after, and
+        // skip already-canceled ones.
         const toCancel: string[] = [];
-        for await (const sub of stripe.subscriptions.list({
-          customer: stripeCustomerId,
-          status: "all",
-          limit: 100,
-        })) {
-          if (sub.status !== "canceled") toCancel.push(sub.id);
+        let startingAfter: string | undefined;
+        for (;;) {
+          const page = await stripe.subscriptions.list({
+            customer: stripeCustomerId,
+            status: "all",
+            limit: 100,
+            ...(startingAfter ? { starting_after: startingAfter } : {}),
+          });
+          const subs = page.data ?? [];
+          for (const sub of subs) {
+            if (sub.status !== "canceled") toCancel.push(sub.id);
+          }
+          if (!page.has_more || subs.length === 0) break;
+          startingAfter = subs[subs.length - 1].id;
         }
         await Promise.all(
           toCancel.map((id) => stripe.subscriptions.cancel(id))
