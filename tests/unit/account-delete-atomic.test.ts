@@ -93,6 +93,10 @@ describe("L2: /api/account/delete — atomic RPC + Stripe preserve (#29)", () =>
     _profileSelectCalls.length = 0;
     _mockStripeList.mockReset();
     _mockStripeCancel.mockReset();
+    // Default: no subscriptions. The cancel-before-delete path now always runs
+    // (when a stripe_customer_id is present), so list() needs a sane default.
+    _mockStripeList.mockResolvedValue({ data: [] });
+    _mockStripeCancel.mockResolvedValue({});
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";  // pragma: allowlist secret
     process.env.STRIPE_SECRET_KEY = "sk_test_real";  // pragma: allowlist secret
@@ -147,20 +151,25 @@ describe("L2: /api/account/delete — atomic RPC + Stripe preserve (#29)", () =>
     expect(_mockStripeCancel).toHaveBeenCalledTimes(2);
   });
 
-  it("returns 500 when the RPC fails (and does NOT hit Stripe)", async () => {
+  it("returns 500 when the RPC fails (no subs, so cancel never runs)", async () => {
     _rpcError = { message: "unique_violation" };
 
     const { status } = await invoke();
     expect(status).toBe(500);
+    // Default mock has no subscriptions, so cancel is never invoked.
     expect(_mockStripeCancel).not.toHaveBeenCalled();
   });
 
-  it("Stripe error is non-fatal (deletion still succeeds)", async () => {
+  it("aborts deletion (502) when Stripe cancellation fails — no zombie billing", async () => {
+    // Cancellation now runs BEFORE the irreversible delete; if it fails we must
+    // NOT delete the account (else the subscription keeps billing with nothing
+    // left to reconcile).
     _mockStripeList.mockRejectedValue(new Error("Stripe API down"));
 
     const { status, body } = await invoke();
-    expect(status).toBe(200);
-    expect(body.deleted).toBe(true);
+    expect(status).toBe(502);
+    expect(body.deleted).toBeUndefined();
+    expect(_rpcCalls).toHaveLength(0); // deletion did not proceed
   });
 
   it("skips Stripe when stripe_customer_id is null", async () => {
