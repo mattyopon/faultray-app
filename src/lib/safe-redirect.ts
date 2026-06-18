@@ -9,17 +9,39 @@
  * The redirect target is always built same-origin (`${origin}${path}`), so any
  * internal path that passes these checks is safe from open-redirect. We reject:
  *   - non-strings / empty
- *   - values with leading/trailing whitespace (must be a clean path)
+ *   - any whitespace (a clean path has none; a literal space would be `%20`)
  *   - protocol-relative (`//host`) and backslash variants (browsers fold `\`→`/`,
  *     enabling `//host`)
- *   - path traversal (`..`)
+ *   - path traversal (`..`), including percent-encoded (`%2e%2e`) and
+ *     double-encoded (`%252e`) forms, and encoded backslash (`%5c`)
  *   - anything that doesn't resolve to the same origin
  */
 export function isSafeInternalPath(raw: string | null | undefined): boolean {
   if (typeof raw !== "string" || raw.length === 0) return false;
-  if (raw !== raw.trim()) return false;
+  // No whitespace anywhere. A legitimate space in a query is percent-encoded
+  // (`%20`); a raw space/tab/newline means the value isn't a clean path. This
+  // also subsumes the old leading/trailing-trim check.
+  if (/\s/.test(raw)) return false;
   if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return false;
   if (raw.includes("\\") || raw.includes("..")) return false;
+  // Defeat percent-encoded traversal / backslash (`/%2e%2e/admin`, `/%5cevil`).
+  // `new URL` decodes and normalizes `%2e%2e` to `..`, so the literal check above
+  // misses it. Decode repeatedly so double-encoding (`%252e` → `%2e` → `.`)
+  // can't smuggle a segment past us, then re-inspect. Malformed encoding (a bare
+  // `%`) makes decodeURIComponent throw — reject those too. We deliberately do
+  // NOT reject decoded whitespace here so legitimate encoded-space query values
+  // (e.g. `/search?q=a%20b`) still pass.
+  let decoded = raw;
+  try {
+    for (let i = 0; i < 3; i++) {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    }
+  } catch {
+    return false;
+  }
+  if (decoded.includes("\\") || decoded.includes("..")) return false;
   try {
     const base = "https://faultray.invalid";
     return new URL(raw, base).origin === base;

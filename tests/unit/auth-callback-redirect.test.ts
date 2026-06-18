@@ -23,6 +23,13 @@ describe("L2: isSafeInternalPath (shared post-auth redirect validator)", () => {
       "javascript:alert(1)",
       "/dashboard/../admin", // traversal
       "/dashboard\\..\\admin",
+      "/%2e%2e/admin", // percent-encoded traversal
+      "/%2E%2E/admin", // percent-encoded traversal (upper)
+      "/%252e%252e/admin", // double-encoded traversal
+      "/%5Cevil.com", // percent-encoded backslash
+      "/foo bar", // internal whitespace
+      "/foo\tbar", // internal tab
+      "/foo%", // malformed percent-encoding
       "", // empty
       " /dashboard", // leading whitespace
       "/dashboard ", // trailing whitespace
@@ -48,6 +55,9 @@ describe("L2: isSafeInternalPath (shared post-auth redirect validator)", () => {
       "/people-risk/members/abc",
       "/teams",
       "/audit-log",
+      // legitimate encoded space in a query value must still pass (the tightened
+      // whitespace check only rejects RAW whitespace, not encoded):
+      "/search?q=a%20b",
     ];
     for (const v of good) {
       expect(isSafeInternalPath(v), `expected accept for ${JSON.stringify(v)}`).toBe(true);

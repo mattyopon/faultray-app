@@ -62,11 +62,32 @@ export async function DELETE(request: Request) {
     // 1. Pre-read stripe_customer_id BEFORE the atomic delete (#29).
     //    The RPC in step 2 will wipe the profile row, so we must capture
     //    external-system identifiers ahead of time.
-    const { data: profile } = await admin
+    const { data: profile, error: profileError } = await admin
       .from("profiles")
       .select("stripe_customer_id")
       .eq("id", userId)
       .maybeSingle();
+    // SEC/bug: a FAILED read (transient DB fault) must NOT be conflated with
+    // "no Stripe customer". If we swallowed the error, stripeCustomerId would
+    // default to null, the cancellation block below would be skipped, and we'd
+    // proceed to irreversibly delete the account while an active subscription
+    // keeps billing — the exact orphaned-billing failure this ordering exists to
+    // prevent, just triggered by a profile-read fault instead of a Stripe fault.
+    // maybeSingle() returns {data:null,error:null} for a genuine no-row result
+    // (legitimately no profile → nothing to cancel), so only a real error aborts.
+    if (profileError) {
+      console.error(
+        "[account/delete] Profile pre-read failed — aborting deletion to avoid orphaning billing:",
+        profileError.message
+      );
+      return NextResponse.json(
+        {
+          error:
+            "Could not verify your billing state right now. Your account was NOT deleted — please try again shortly.",
+        },
+        { status: 502 }
+      );
+    }
     const stripeCustomerId =
       (profile?.stripe_customer_id as string | null | undefined) ?? null;
 
