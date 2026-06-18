@@ -25,14 +25,17 @@ export async function DELETE(request: Request) {
   if (authError) return authError;
 
   // Parse optional confirmation body
-  let body: { confirm?: boolean } = {};
+  let body: { confirm?: unknown } = {};
   try {
-    body = (await request.json()) as { confirm?: boolean };
+    body = (await request.json()) as { confirm?: unknown };
   } catch {
     // No body is fine; we already authenticated above
   }
 
-  if (!body.confirm) {
+  // SEC (U16): require the strict boolean `true`. `!body.confirm` accepted any
+  // truthy value (e.g. {"confirm": 1} or {"confirm": "x"}) → type-confusion that
+  // could trigger an irreversible delete with an unintended payload.
+  if (body.confirm !== true) {
     return NextResponse.json(
       { error: "Confirmation required. Send { \"confirm\": true } in the request body." },
       { status: 400 }
@@ -98,14 +101,23 @@ export async function DELETE(request: Request) {
     ) {
       try {
         const stripe = new Stripe(stripeSecretKey, { timeout: 30000 });
-        const subscriptions = await stripe.subscriptions.list({
+        // SEC (U7): paginate ALL subscriptions. `list()` returns only the first
+        // page (default 10), so a customer with >10 subs would keep billing.
+        // `for await` auto-paginates; include all statuses and skip already-
+        // canceled ones.
+        const toCancel: string[] = [];
+        for await (const sub of stripe.subscriptions.list({
           customer: stripeCustomerId,
-        });
+          status: "all",
+          limit: 100,
+        })) {
+          if (sub.status !== "canceled") toCancel.push(sub.id);
+        }
         await Promise.all(
-          subscriptions.data.map((sub) => stripe.subscriptions.cancel(sub.id))
+          toCancel.map((id) => stripe.subscriptions.cancel(id))
         );
         console.info(
-          `[account/delete] Cancelled ${subscriptions.data.length} Stripe subscription(s) for customer ${stripeCustomerId}`
+          `[account/delete] Cancelled ${toCancel.length} Stripe subscription(s) for customer ${stripeCustomerId}`
         );
       } catch (stripeErr) {
         const msg = stripeErr instanceof Error ? stripeErr.message : "Unknown error";
