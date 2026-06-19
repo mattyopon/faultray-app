@@ -34,10 +34,12 @@ interface Incident {
   updates: { time: string; message: string }[];
 }
 
+const ALLOWED_STATUSES: ServiceStatus[] = ["operational", "degraded", "outage", "maintenance", "unknown"];
+
 function _probeToService(p: ServiceProbe): Service {
   return {
     name: p.name,
-    status: p.status as ServiceStatus,
+    status: ALLOWED_STATUSES.includes(p.status) ? p.status : "unknown",
     latency: p.latency_ms != null ? `${p.latency_ms}ms` : undefined,
     description: p.note ?? "",
   };
@@ -87,6 +89,7 @@ function statusColor(s: ServiceStatus) {
 }
 
 function overallStatus(services: Service[]): ServiceStatus {
+  if (services.length === 0) return "unknown";
   if (services.some((s) => s.status === "outage")) return "outage";
   if (services.some((s) => s.status === "degraded")) return "degraded";
   if (services.some((s) => s.status === "maintenance")) return "maintenance";
@@ -97,8 +100,15 @@ function overallStatus(services: Service[]): ServiceStatus {
  * Page — Server Component; probes Supabase/Stripe/Resend on render (#37).
  * ============================================================ */
 export default async function StatusPage() {
-  const live = await probeAll();
-  const SERVICES: Service[] = live.services.map(_probeToService);
+  let SERVICES: Service[] = [];
+  try {
+    const live = await probeAll();
+    if (live && Array.isArray(live.services)) {
+      SERVICES = live.services.map(_probeToService);
+    }
+  } catch (err) {
+    console.error("[status] probeAll failed:", err);
+  }
   const overall = overallStatus(SERVICES);
 
   return (

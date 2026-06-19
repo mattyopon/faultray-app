@@ -52,7 +52,24 @@ export default function FmeaPage() {
   useEffect(() => {
     api
       .getFmea()
-      .then((result) => setData(result))
+      .then((result) =>
+        // Guard against a 200 with a partial/malformed body: the render reads
+        // data.failure_modes (.filter/.map) and data.rpn_distribution.* directly,
+        // which would throw at render time (uncaught by this .catch). Normalize
+        // the nested fields so a missing/null shape degrades gracefully.
+        setData({
+          ...result,
+          failure_modes: Array.isArray(result?.failure_modes)
+            ? result.failure_modes
+            : [],
+          rpn_distribution: result?.rpn_distribution ?? {
+            critical: 0,
+            high: 0,
+            medium: 0,
+            low: 0,
+          },
+        })
+      )
       .catch((err) => { console.error("[fmea] API error, using demo data:", err); setData(DEMO_DATA); })
       .finally(() => setLoading(false));
   }, []);

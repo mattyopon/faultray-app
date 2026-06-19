@@ -195,9 +195,17 @@ function RunbookCard({ rb, t }: { rb: typeof DEMO_RUNBOOKS[0]; t: Record<string,
   const [copied, setCopied] = useState("");
 
   const handleCopy = (text: string, key: string) => {
-    navigator.clipboard.writeText(text).catch(() => {});
-    setCopied(key);
-    setTimeout(() => setCopied(""), 2000);
+    // navigator.clipboard is undefined in insecure contexts / older browsers, so
+    // accessing .writeText directly can throw synchronously. Feature-detect first
+    // and only show the "copied" confirmation once the write actually succeeds.
+    if (!navigator.clipboard?.writeText) return;
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopied(key);
+        setTimeout(() => setCopied(""), 2000);
+      })
+      .catch(() => {});
   };
 
   return (

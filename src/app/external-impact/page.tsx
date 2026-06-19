@@ -49,6 +49,23 @@ const DEMO_DATA: ExternalImpactData = {
   ],
 };
 
+function isExternalImpactData(d: unknown): d is ExternalImpactData {
+  if (typeof d !== "object" || d === null) return false;
+  const obj = d as Record<string, unknown>;
+  return (
+    Array.isArray(obj.services) &&
+    typeof obj.avg_blast_radius === "number" &&
+    obj.services.every(
+      (s) =>
+        typeof s === "object" &&
+        s !== null &&
+        Array.isArray((s as Record<string, unknown>).dependent_components) &&
+        typeof (s as Record<string, unknown>).monthly_downtime_minutes === "number" &&
+        typeof (s as Record<string, unknown>).blast_radius_percent === "number",
+    )
+  );
+}
+
 function riskColor(level: string): string {
   if (level === "critical") return "#ef4444";
   if (level === "high") return "#f59e0b";
@@ -71,19 +88,35 @@ export default function ExternalImpactPage() {
   const t = appDict.externalImpact[locale] ?? appDict.externalImpact.en;
 
   useEffect(() => {
+    let active = true;
     const controller = new AbortController();
     fetch("/api/proxy?path=/api/v1/external-impact", { signal: controller.signal })
-      .then((r) => r.json())
-      .then((d) => setData(d))
-      .catch((err) => { console.error("[external-impact] API error, using demo data:", err); setData(DEMO_DATA); })
-      .finally(() => setLoading(false));
-    return () => controller.abort();
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((d) => {
+        if (!active) return;
+        setData(isExternalImpactData(d) ? d : DEMO_DATA);
+      })
+      .catch((err) => {
+        if ((err as { name?: string })?.name === "AbortError") return;
+        console.error("[external-impact] API error, using demo data:", err);
+        if (active) setData(DEMO_DATA);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, []);
 
-  const riskOrder = { critical: 4, high: 3, medium: 2, low: 1 };
+  const riskOrder: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
   const sorted = [...data.services].sort((a, b) => {
     if (sortBy === "blast_radius") return b.blast_radius_percent - a.blast_radius_percent;
-    if (sortBy === "risk_level") return riskOrder[b.risk_level] - riskOrder[a.risk_level];
+    if (sortBy === "risk_level") return (riskOrder[b.risk_level] ?? 0) - (riskOrder[a.risk_level] ?? 0);
     return b.monthly_downtime_minutes - a.monthly_downtime_minutes;
   });
 

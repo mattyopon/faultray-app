@@ -62,7 +62,7 @@ function statusBadge(status: string): "red" | "yellow" | "green" | "default" {
 
 function burnRateBar(burnRate: number) {
   const color = burnRate > 100 ? "#ef4444" : burnRate > 70 ? "#f59e0b" : burnRate > 40 ? "#eab308" : "#10b981";
-  const width = Math.min(burnRate, 100);
+  const width = Math.max(0, Math.min(burnRate, 100));
   return (
     <div className="flex items-center gap-2">
       <div className="w-20 h-2 bg-white/5 rounded-full overflow-hidden">
@@ -83,10 +83,25 @@ export default function SlaBudgetPage() {
   useEffect(() => {
     const controller = new AbortController();
     fetch("/api/proxy?path=/api/v1/sla-budget", { signal: controller.signal })
-      .then((r) => r.json())
-      .then((d) => setData(d))
-      .catch((err) => { console.error("[sla-budget] API error, using demo data:", err); setData(DEMO_DATA); })
-      .finally(() => setLoading(false));
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((d) => {
+        if (d && Array.isArray(d.entries) && typeof d.days_total === "number") {
+          setData(d as SlaBudgetData);
+        } else {
+          setData(DEMO_DATA);
+        }
+      })
+      .catch((err) => {
+        if (err instanceof Error && err.name === "AbortError") return;
+        console.error("[sla-budget] API error, using demo data:", err);
+        setData(DEMO_DATA);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
     return () => controller.abort();
   }, []);
 
@@ -100,7 +115,9 @@ export default function SlaBudgetPage() {
   const exhaustedCount = data.entries.filter((e) => e.status === "exhausted").length;
   const criticalCount = data.entries.filter((e) => e.status === "critical").length;
   const warningCount = data.entries.filter((e) => e.status === "warning").length;
-  const progressPercent = Math.round((data.days_elapsed / data.days_total) * 100);
+  const progressPercent = data.days_total > 0
+    ? Math.max(0, Math.min(100, Math.round((data.days_elapsed / data.days_total) * 100)))
+    : 0;
 
   return (
     <div className="w-full px-6 py-10">
