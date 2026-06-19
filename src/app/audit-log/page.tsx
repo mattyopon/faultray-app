@@ -201,10 +201,11 @@ export default function AuditLogPage() {
       .then((data) => {
         if (data.entries && data.entries.length > 0) {
           setEntries(data.entries.map((e: Record<string, unknown>) => {
-            const rawAction = String(e.action ?? "");
-            const action: AuditAction = Object.prototype.hasOwnProperty.call(ACTION_LABELS, rawAction)
-              ? (rawAction as AuditAction)
-              : "LOGIN";
+            // Preserve the server's canonical action even when this page has
+            // not listed it yet — display/filter/export fall back to the raw
+            // value. Relabeling unknown-but-valid actions (e.g. REPORT_VIEW) to
+            // "LOGIN" would corrupt the audit trail (Codex P2).
+            const action = String(e.action ?? "") as AuditAction;
             return {
               id: String(e.id ?? ""),
               timestamp: String(e.created_at ?? ""),
@@ -230,7 +231,7 @@ export default function AuditLogPage() {
         !search ||
         entry.actor.toLowerCase().includes(search.toLowerCase()) ||
         entry.actorEmail.toLowerCase().includes(search.toLowerCase()) ||
-        (ACTION_LABELS[entry.action] ?? "").toLowerCase().includes(search.toLowerCase()) ||
+        (ACTION_LABELS[entry.action] ?? entry.action).toLowerCase().includes(search.toLowerCase()) ||
         (entry.resource ?? "").toLowerCase().includes(search.toLowerCase());
       const matchesOutcome = outcomeFilter === "ALL" || entry.outcome === outcomeFilter;
       return matchesSearch && matchesOutcome;
@@ -243,7 +244,10 @@ export default function AuditLogPage() {
     // Neutralize spreadsheet formula injection: prefix cells starting with
     // =, +, -, @, tab or CR with a single quote before quote-escaping.
     const escapeCell = (v: unknown) => {
-      const s = String(v).replace(/^([=+\-@\t\r])/, "'$1");
+      let s = String(v);
+      // Neutralize whitespace-prefixed payloads too (e.g. " =1+1"), which a
+      // spreadsheet trims before evaluating as a formula.
+      if (/^[\s]*[=+\-@]/.test(s)) s = "'" + s;
       return `"${s.replace(/"/g, '""')}"`;
     };
     const rows = filtered.map((e) =>

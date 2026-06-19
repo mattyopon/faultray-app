@@ -94,12 +94,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // plan never persists across an account switch.
         setPlan("free");
       }
-    } catch {
-      // Supabase not configured or query failed — fall back to "free"
-      // (never leave a stale paid plan from a previous user).
-      setPlan("free");
+    } catch (err) {
+      // Transient failure (network / Supabase / RLS hiccup) for the current
+      // user must NOT downgrade the UI to "free" — that hides paid features
+      // while the subscription is unchanged (Codex P2). The plan is cleared on
+      // sign-out / account switch elsewhere; here we preserve the existing plan
+      // and only stop loading below.
+      if (latestPlanUidRef.current === uid) {
+        console.debug("[auth] plan fetch failed; keeping current plan", err);
+      }
     } finally {
-      setPlanLoading(false);
+      // Same guard for loading: a stale request must not flip planLoading off
+      // for the current (newer) request that is still in flight.
+      if (latestPlanUidRef.current === uid) setPlanLoading(false);
     }
   }, []);
 
@@ -146,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 "/en", "/ja", "/de", "/fr", "/zh", "/ko", "/es", "/pt",
                 "/case-studies", "/changelog", "/contact", "/demo",
                 "/privacy", "/terms", "/tokushoho", "/dpa", "/help", "/support",
+                "/status", "/ringi",
               ].some((p) => window.location.pathname === p || window.location.pathname.startsWith(p + "/"));
               if (isAppPage) {
                 window.location.href = "/login?error=session_expired";

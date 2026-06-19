@@ -101,15 +101,21 @@ function overallStatus(services: Service[]): ServiceStatus {
  * ============================================================ */
 export default async function StatusPage() {
   let SERVICES: Service[] = [];
+  let probedOverall: ServiceStatus | undefined;
   try {
     const live = await probeAll();
     if (live && Array.isArray(live.services)) {
       SERVICES = live.services.map(_probeToService);
     }
+    // Trust the probe's own aggregated status when it is a known value; only
+    // fall back to a locally-computed status when it is absent/unknown.
+    if (live && ALLOWED_STATUSES.includes(live.overall) && live.overall !== "unknown") {
+      probedOverall = live.overall;
+    }
   } catch (err) {
     console.error("[status] probeAll failed:", err);
   }
-  const overall = overallStatus(SERVICES);
+  const overall = probedOverall ?? overallStatus(SERVICES);
 
   return (
     <div className="max-w-[860px] mx-auto px-6 py-20">

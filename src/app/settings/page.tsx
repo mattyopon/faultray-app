@@ -399,7 +399,11 @@ export default function SettingsPage() {
     // pure — running side effects (fetch/localStorage/setTimeout) inside it
     // causes duplicate requests/timers when React invokes it twice (Strict Mode).
     const prev = notifications;
-    const next = { ...prev, [key]: !prev[key] };
+    // Capture only the toggled key's previous value so a failed save reverts
+    // just that key — concurrent toggles of other keys are preserved.
+    const prevValue = prev[key];
+    const nextValue = !prevValue;
+    const next = { ...prev, [key]: nextValue };
     setNotifications(next);
     // Persist to localStorage so the setting survives page reloads (SAAS-04)
     try { localStorage.setItem("faultray_notifications", JSON.stringify(next)); } catch { /* ignore */ }
@@ -410,15 +414,24 @@ export default function SettingsPage() {
     fetch("/api/notification-preferences", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [key]: next[key] }),
+      body: JSON.stringify({ [key]: nextValue }),
     })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
       })
       .catch((err) => {
         console.error("[settings] Failed to save notification preference:", err);
-        setNotifications(prev);
-        try { localStorage.setItem("faultray_notifications", JSON.stringify(prev)); } catch { /* ignore */ }
+        // Restore only the toggled key (functional update) so we don't clobber
+        // other keys the user may have changed while this request was in flight.
+        setNotifications((curr) => ({ ...curr, [key]: prevValue }));
+        // Patch just this key in the persisted copy too (read-modify-write) so
+        // localStorage stays in sync without overwriting other concurrent edits.
+        try {
+          const stored = localStorage.getItem("faultray_notifications");
+          const parsed = stored ? JSON.parse(stored) : { ...prev };
+          parsed[key] = prevValue;
+          localStorage.setItem("faultray_notifications", JSON.stringify(parsed));
+        } catch { /* ignore */ }
         showToast(
           locale === "ja" ? "通知設定の保存に失敗しました" : "Failed to save notification preference",
           "error",

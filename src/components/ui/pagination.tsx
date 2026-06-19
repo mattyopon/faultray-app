@@ -74,8 +74,10 @@ export function Pagination({ currentPage, totalPages, onPageChange, className }:
 export function usePagination<T>(items: T[], pageSize = 20) {
   const [page, setPage] = useState(1);
   // Sanitize pageSize: 0 would make totalPages Infinity and slice bounds NaN;
-  // negative / non-finite values produce nonsensical pagination.
-  const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.floor(pageSize) : 20;
+  // negative / non-finite values produce nonsensical pagination. Floor FIRST so
+  // a fractional value like 0.5 doesn't pass the >0 check and then floor to 0.
+  const flooredPageSize = Number.isFinite(pageSize) ? Math.floor(pageSize) : 0;
+  const safePageSize = flooredPageSize >= 1 ? flooredPageSize : 20;
   const totalPages = Math.max(1, Math.ceil(items.length / safePageSize));
   // Clamp the page used for slicing (and exposed to consumers) so a shrunk
   // list (filter/delete) never leaves the user on a blank page past the end of

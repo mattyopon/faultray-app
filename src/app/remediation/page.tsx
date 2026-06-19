@@ -962,7 +962,7 @@ function buildAllActionsCsv(
       csvEscape(statusMap[ts.status] ?? ts.status),
       String(a.effortWeeks),
       String(a.costEur),
-      `+${a.scoreImpact}`,
+      csvEscape(`+${a.scoreImpact}`),
       csvEscape(ts.deadline || start.toISOString().split("T")[0]),
     ].join(",");
   });
@@ -1103,8 +1103,14 @@ export default function RemediationPage() {
     (text: string) => {
       const ok = tAny.copiedToClipboard ?? "Copied!";
       const fail = locale === "ja" ? "コピーに失敗しました" : "Copy failed";
-      Promise.resolve()
-        .then(() => navigator.clipboard?.writeText(text))
+      // navigator.clipboard is undefined in insecure contexts / older browsers.
+      // Feature-detect first so we never report success when no write happened.
+      if (!navigator.clipboard?.writeText) {
+        showToast(fail);
+        return;
+      }
+      navigator.clipboard
+        .writeText(text)
         .then(() => showToast(ok))
         .catch(() => showToast(fail));
     },
@@ -1151,16 +1157,22 @@ export default function RemediationPage() {
     // Print once the document has loaded; revoke after printing finishes so the
     // print spooler still has access to the Blob URL.
     let revoked = false;
+    // Schedule the safety-net revoke up front (outside the load listener) so a
+    // very fast load — or a load event we miss attaching to — can't leak the
+    // object URL. afterprint clears it once printing finishes.
+    const safetyTimer = setTimeout(() => {
+      revoked = true;
+      URL.revokeObjectURL(blobUrl);
+    }, 60000);
     const revoke = () => {
       if (revoked) return;
       revoked = true;
+      clearTimeout(safetyTimer);
       URL.revokeObjectURL(blobUrl);
     };
     win.addEventListener("load", () => {
       win.addEventListener("afterprint", revoke);
       win.print();
-      // Safety net in case afterprint never fires.
-      setTimeout(revoke, 60000);
     });
   }, [data, tAny, locale]);
 

@@ -405,11 +405,15 @@ export default function TeamsPage() {
   const handleDeleteTask = async (taskId: string) => {
     // Surface non-ok / network failures instead of silently leaving the task.
     // (TaskCard awaits this and resets its spinner in a finally block.)
-    const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
-    if (res.ok) {
-      setTasks((prev) => prev.filter((t) => t.id !== taskId));
-    } else {
-      console.error("[teams] task delete failed:", res.status);
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+      if (res.ok) {
+        setTasks((prev) => prev.filter((t) => t.id !== taskId));
+      } else {
+        console.error("[teams] task delete failed:", res.status);
+      }
+    } catch (err) {
+      console.error("[teams] task delete failed:", err);
     }
   };
 

@@ -53,6 +53,29 @@ const DEMO_DATA: VulnPriorityData = {
   ],
 };
 
+function isRiskFactor(f: unknown): f is RiskFactor {
+  if (typeof f !== "object" || f === null) return false;
+  const o = f as Record<string, unknown>;
+  return typeof o.name === "string" && typeof o.value === "string" && Number.isFinite(o.weight);
+}
+
+function isVulnEntry(e: unknown): e is VulnEntry {
+  if (typeof e !== "object" || e === null) return false;
+  const o = e as Record<string, unknown>;
+  return (
+    Number.isFinite(o.rank) &&
+    typeof o.component === "string" &&
+    typeof o.vuln_id === "string" &&
+    Number.isFinite(o.vuln_score) &&
+    Number.isFinite(o.blast_radius) &&
+    Number.isFinite(o.exploitability) &&
+    Number.isFinite(o.priority_score) &&
+    Array.isArray(o.risk_factors) &&
+    o.risk_factors.every(isRiskFactor) &&
+    typeof o.status === "string"
+  );
+}
+
 function priorityColor(score: number): string {
   if (score >= 85) return "#ef4444";
   if (score >= 65) return "#f59e0b";
@@ -84,7 +107,12 @@ export default function VulnPriorityPage() {
         // Validate the untrusted response before replacing the safe DEMO_DATA;
         // a non-2xx error body or malformed payload would otherwise crash the
         // render (d.avg_priority_score.toFixed, d.entries.map, ...).
-        if (d && typeof d.avg_priority_score === "number" && Array.isArray(d.entries)) {
+        if (
+          d &&
+          typeof d.avg_priority_score === "number" &&
+          Array.isArray(d.entries) &&
+          d.entries.every(isVulnEntry)
+        ) {
           setData(d);
         } else {
           setData(DEMO_DATA);

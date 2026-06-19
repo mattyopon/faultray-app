@@ -280,13 +280,43 @@ export default function SlaPage() {
         // safe DEMO fallback. Previously only sla_overview was checked, so a
         // response missing slo_breakdown/error_budget_history/validation/
         // contracts crashed the render (.map/.toFixed on undefined).
+        const ov = d?.sla_overview;
+        const ovValid =
+          ov &&
+          typeof ov === "object" &&
+          Number.isFinite(ov.target) &&
+          Number.isFinite(ov.current) &&
+          Number.isFinite(ov.error_budget_total_minutes) &&
+          Number.isFinite(ov.error_budget_used_minutes) &&
+          Number.isFinite(ov.error_budget_remaining_pct);
+        const sloValid =
+          Array.isArray(d?.slo_breakdown) &&
+          d.slo_breakdown.every(
+            (s: unknown) =>
+              typeof s === "object" &&
+              s !== null &&
+              typeof (s as Record<string, unknown>).name === "string" &&
+              Number.isFinite((s as Record<string, unknown>).target) &&
+              Number.isFinite((s as Record<string, unknown>).current) &&
+              typeof (s as Record<string, unknown>).unit === "string",
+          );
+        const historyValid =
+          Array.isArray(d?.error_budget_history) &&
+          d.error_budget_history.every(
+            (h: unknown) =>
+              typeof h === "object" &&
+              h !== null &&
+              Number.isFinite((h as Record<string, unknown>).day) &&
+              Number.isFinite((h as Record<string, unknown>).budget_used_pct),
+          );
         if (
           d &&
-          d.sla_overview &&
-          Array.isArray(d.slo_breakdown) &&
-          Array.isArray(d.error_budget_history) &&
+          ovValid &&
+          sloValid &&
+          historyValid &&
           d.validation &&
           d.validation.availability_by_layer &&
+          Array.isArray(d.validation.recommendations) &&
           Array.isArray(d.contracts)
         ) {
           setData(d);

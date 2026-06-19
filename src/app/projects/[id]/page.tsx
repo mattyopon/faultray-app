@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type ProjectWithRuns } from "@/lib/api";
 import { useLocale } from "@/lib/useLocale";
 import { appDict } from "@/i18n/app-dict";
@@ -157,6 +157,17 @@ export default function ProjectDetailPage() {
   const locale = useLocale();
   const t = appDict.projects[locale] ?? appDict.projects.en;
   const router = useRouter();
+
+  // Reset during render when the projectId changes so navigating between
+  // projects shows the loader instead of the previously-loaded project's data.
+  // (React's recommended "adjust state during render" pattern — avoids a
+  // synchronous setState inside the effect body and the extra paint it causes.)
+  const prevProjectIdRef = useRef<string | undefined>(projectId);
+  if (prevProjectIdRef.current !== projectId) {
+    prevProjectIdRef.current = projectId;
+    setProject(null);
+    setLoading(!!projectId);
+  }
 
   useEffect(() => {
     if (!projectId) return;

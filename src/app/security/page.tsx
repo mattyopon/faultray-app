@@ -47,6 +47,37 @@ const DEMO_DATA: AttackSurfaceData = {
   ],
 };
 
+function isExternalComponent(c: unknown): boolean {
+  if (typeof c !== "object" || c === null) return false;
+  const o = c as Record<string, unknown>;
+  return (
+    typeof o.id === "string" &&
+    typeof o.name === "string" &&
+    typeof o.exposure === "string" &&
+    Array.isArray(o.ports) &&
+    o.ports.every((p) => typeof p === "number") &&
+    Array.isArray(o.protocols) &&
+    o.protocols.every((p) => typeof p === "string") &&
+    Number.isFinite(o.risk_score) &&
+    Array.isArray(o.vulnerabilities) &&
+    o.vulnerabilities.every((v) => {
+      if (typeof v !== "object" || v === null) return false;
+      const vo = v as Record<string, unknown>;
+      return (
+        typeof vo.type === "string" &&
+        typeof vo.severity === "string" &&
+        typeof vo.mitigation === "string"
+      );
+    })
+  );
+}
+
+function isInternalComponent(c: unknown): boolean {
+  if (typeof c !== "object" || c === null) return false;
+  const o = c as Record<string, unknown>;
+  return typeof o.id === "string" && typeof o.name === "string" && Number.isFinite(o.risk_score);
+}
+
 function isAttackSurfaceData(d: unknown): d is AttackSurfaceData {
   if (typeof d !== "object" || d === null) return false;
   const obj = d as Record<string, unknown>;
@@ -56,8 +87,11 @@ function isAttackSurfaceData(d: unknown): d is AttackSurfaceData {
     summary !== null &&
     typeof summary.risk_level === "string" &&
     Array.isArray(obj.external_components) &&
+    obj.external_components.every(isExternalComponent) &&
     Array.isArray(obj.internal_components) &&
-    Array.isArray(obj.recommendations)
+    obj.internal_components.every(isInternalComponent) &&
+    Array.isArray(obj.recommendations) &&
+    obj.recommendations.every((r) => typeof r === "string")
   );
 }
 

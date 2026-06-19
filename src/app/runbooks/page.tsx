@@ -2,7 +2,7 @@
 
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BookOpen, ChevronDown, ChevronRight, Copy, Search } from "lucide-react";
 import { useLocale } from "@/lib/useLocale";
 import { appDict } from "@/i18n/app-dict";
@@ -193,6 +193,16 @@ function RunbookCard({ rb, t }: { rb: typeof DEMO_RUNBOOKS[0]; t: Record<string,
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<"steps" | "templates">("steps");
   const [copied, setCopied] = useState("");
+  // Track the "copied" reset timer so rapid copies don't leave overlapping
+  // timeouts (which could clear the indicator early) and so it's cleaned up on
+  // unmount instead of firing setState on an unmounted component.
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    };
+  }, []);
 
   const handleCopy = (text: string, key: string) => {
     // navigator.clipboard is undefined in insecure contexts / older browsers, so
@@ -203,7 +213,8 @@ function RunbookCard({ rb, t }: { rb: typeof DEMO_RUNBOOKS[0]; t: Record<string,
       .writeText(text)
       .then(() => {
         setCopied(key);
-        setTimeout(() => setCopied(""), 2000);
+        if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+        copiedTimerRef.current = setTimeout(() => setCopied(""), 2000);
       })
       .catch(() => {});
   };

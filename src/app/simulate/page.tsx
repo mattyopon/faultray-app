@@ -1028,19 +1028,30 @@ function SimulatePageInner() {
       if (typeof ev.target?.result !== "string") {
         setError("Could not read file contents.");
         setUploadedFileName(null);
+        // Block Run: clear any stale topology + set a blocking yamlError so the
+        // Run button (which gates on yamlError/yamlText) can't run old input.
+        setYamlText("");
+        setYamlError("Could not read file contents.");
         return;
       }
       const text = ev.target.result;
       const { ok, text: cleaned, error: sanitizeError } = sanitizeYamlInput(text);
       if (!ok) {
-        setError(sanitizeError ?? "Invalid YAML input.");
+        const msg = sanitizeError ?? "Invalid YAML input.";
+        setError(msg);
+        // Block Run so a stale topology from a previous upload/edit can't be run.
+        setYamlText("");
+        setYamlError(msg);
         return;
       }
       setYamlText(cleaned);
+      setYamlError(null);
     };
     reader.onerror = () => {
       setError("Failed to read the uploaded file. Please try again.");
       setUploadedFileName(null);
+      setYamlText("");
+      setYamlError("Failed to read the uploaded file. Please try again.");
     };
     reader.onabort = () => {
       setUploadedFileName(null);

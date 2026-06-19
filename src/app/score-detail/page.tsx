@@ -124,11 +124,39 @@ export default function ScoreDetailPage() {
         // Validate the untrusted response shape before replacing the safe
         // DEMO_DATA initial state — otherwise null/malformed payloads crash
         // the render (data.overall_score.toFixed, data.layers.map, etc.).
+        const isValidLayer = (l: unknown): boolean => {
+          if (typeof l !== "object" || l === null) return false;
+          const o = l as Record<string, unknown>;
+          return (
+            typeof o.name === "string" &&
+            Number.isFinite(o.score) &&
+            Number.isFinite(o.weight) &&
+            Number.isFinite(o.weighted_score) &&
+            Array.isArray(o.factors) &&
+            o.factors.every((f) => {
+              if (typeof f !== "object" || f === null) return false;
+              const fo = f as Record<string, unknown>;
+              return typeof fo.name === "string" && Number.isFinite(fo.score);
+            })
+          );
+        };
+        const isValidDetractor = (dd: unknown): boolean => {
+          if (typeof dd !== "object" || dd === null) return false;
+          const o = dd as Record<string, unknown>;
+          return (
+            typeof o.factor === "string" &&
+            typeof o.layer === "string" &&
+            Number.isFinite(o.score) &&
+            Number.isFinite(o.potential_gain)
+          );
+        };
         if (
           result &&
-          typeof result.overall_score === "number" &&
+          Number.isFinite(result.overall_score) &&
           Array.isArray(result.layers) &&
-          Array.isArray(result.top_detractors)
+          result.layers.every(isValidLayer) &&
+          Array.isArray(result.top_detractors) &&
+          result.top_detractors.every(isValidDetractor)
         ) {
           setData(result);
         } else {

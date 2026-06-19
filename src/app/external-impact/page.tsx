@@ -49,20 +49,37 @@ const DEMO_DATA: ExternalImpactData = {
   ],
 };
 
+const RISK_LEVELS = ["critical", "high", "medium", "low"] as const;
+
+function isExternalService(s: unknown): s is ExternalService {
+  if (typeof s !== "object" || s === null) return false;
+  const o = s as Record<string, unknown>;
+  return (
+    typeof o.id === "string" &&
+    typeof o.name === "string" &&
+    typeof o.category === "string" &&
+    typeof o.risk_level === "string" &&
+    (RISK_LEVELS as readonly string[]).includes(o.risk_level) &&
+    Array.isArray(o.dependent_components) &&
+    o.dependent_components.every((c) => typeof c === "string") &&
+    Number.isFinite(o.monthly_downtime_minutes) &&
+    Number.isFinite(o.blast_radius_percent) &&
+    Number.isFinite(o.sla_percent) &&
+    typeof o.fallback_available === "boolean"
+  );
+}
+
 function isExternalImpactData(d: unknown): d is ExternalImpactData {
   if (typeof d !== "object" || d === null) return false;
   const obj = d as Record<string, unknown>;
   return (
+    typeof obj.scan_date === "string" &&
+    Number.isFinite(obj.total_services) &&
+    Number.isFinite(obj.unprotected_count) &&
+    Number.isFinite(obj.critical_count) &&
+    Number.isFinite(obj.avg_blast_radius) &&
     Array.isArray(obj.services) &&
-    typeof obj.avg_blast_radius === "number" &&
-    obj.services.every(
-      (s) =>
-        typeof s === "object" &&
-        s !== null &&
-        Array.isArray((s as Record<string, unknown>).dependent_components) &&
-        typeof (s as Record<string, unknown>).monthly_downtime_minutes === "number" &&
-        typeof (s as Record<string, unknown>).blast_radius_percent === "number",
-    )
+    obj.services.every(isExternalService)
   );
 }
 

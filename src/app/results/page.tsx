@@ -45,7 +45,7 @@ export default function ResultsPage() {
     // RFC 4180 escaping + spreadsheet formula-injection neutralization.
     const escapeCsv = (v: unknown) => {
       let s = String(v ?? "");
-      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      if (/^[=+\-@\t\r\n]/.test(s)) s = "'" + s;
       if (/[",\r\n]/.test(s)) s = `"${s.replace(/"/g, '""')}"`;
       return s;
     };

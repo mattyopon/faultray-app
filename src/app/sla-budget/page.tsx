@@ -88,7 +88,24 @@ export default function SlaBudgetPage() {
         return r.json();
       })
       .then((d) => {
-        if (d && Array.isArray(d.entries) && typeof d.days_total === "number") {
+        const isValidEntry = (e: unknown): boolean => {
+          if (typeof e !== "object" || e === null) return false;
+          const o = e as Record<string, unknown>;
+          return (
+            Number.isFinite(o.sla_target_percent) &&
+            Number.isFinite(o.allowed_minutes_per_month) &&
+            Number.isFinite(o.consumed_minutes) &&
+            Number.isFinite(o.remaining_minutes) &&
+            Number.isFinite(o.burn_rate_percent) &&
+            Number.isFinite(o.incidents_this_month)
+          );
+        };
+        if (
+          d &&
+          Array.isArray(d.entries) &&
+          d.entries.every(isValidEntry) &&
+          Number.isFinite(d.days_total)
+        ) {
           setData(d as SlaBudgetData);
         } else {
           setData(DEMO_DATA);

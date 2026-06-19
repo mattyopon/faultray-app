@@ -104,7 +104,14 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      // Reset billing/trial state on sign-out / account switch so a previous
+      // account's plan or trial deadline never lingers in the UI.
+      setTrialEndsAt(null);
+      setCurrentPlan("");
+      setSubscriptionStatus("active");
+      return;
+    }
     // `cancelled` guards against out-of-order resolutions when `user` changes
     // rapidly (stale profile overwriting newer state) and setState-after-unmount.
     let cancelled = false;

@@ -187,15 +187,18 @@ export default function ProjectsPage() {
   const router = useRouter();
 
   useEffect(() => {
+    let ignore = false;
     api
       .getProjects()
-      .then((data) => setProjects(Array.isArray(data) ? data : []))
+      .then((data) => { if (!ignore) setProjects(Array.isArray(data) ? data : []); })
       .catch((err) => {
+        if (ignore) return;
         console.error("[projects] Failed to fetch projects:", err);
         setFetchError(true);
         setProjects([]);
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
   }, []);
 
   return (

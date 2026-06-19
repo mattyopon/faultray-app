@@ -94,8 +94,14 @@ export default function ShadowItPage() {
         }
         setData(d);
       })
-      .catch((err) => { console.error("[shadow-it] API error, using demo data:", err); setData(DEMO_DATA); })
-      .finally(() => setLoading(false));
+      .catch((err) => {
+        // An aborted request (component unmount) is not a failure — don't
+        // overwrite state on an unmounted component.
+        if ((err as { name?: string })?.name === "AbortError") return;
+        console.error("[shadow-it] API error, using demo data:", err);
+        setData(DEMO_DATA);
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, []);
 
