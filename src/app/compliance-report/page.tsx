@@ -158,12 +158,7 @@ export default function ComplianceReportPage() {
     // returned HTML.
     const win = window.open("about:blank", "_blank");
     if (!win) {
-      showToast(
-        locale === "ja"
-          ? "ポップアップがブロックされました。ポップアップを許可してください。"
-          : "Popup blocked. Please allow popups and try again.",
-        "error"
-      );
+      showToast(t.popupBlocked, "error");
       return;
     }
     // Sever the opener link so the report tab cannot reach back through
@@ -194,12 +189,7 @@ export default function ComplianceReportPage() {
         });
         if (res.status === 401) {
           win.close();
-          showToast(
-            locale === "ja"
-              ? "レポートの生成にはログインが必要です。"
-              : "Please sign in to generate the report.",
-            "error"
-          );
+          showToast(t.signInRequired, "error");
           return;
         }
         if (!res.ok) {
@@ -214,12 +204,7 @@ export default function ComplianceReportPage() {
         // unmount so it can't fire against a torn-down component.
         if (revokeTimerRef.current) clearTimeout(revokeTimerRef.current);
         revokeTimerRef.current = setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
-        showToast(
-          locale === "ja"
-            ? `${selected} レポートを生成しました`
-            : `${selected} report generated`,
-          "success"
-        );
+        showToast(t.reportGenerated.replace("{framework}", selected), "success");
       } catch (err) {
         // Unmount / supersede aborts land here — close the placeholder quietly.
         if (err instanceof DOMException && err.name === "AbortError") {
@@ -227,12 +212,7 @@ export default function ComplianceReportPage() {
           return;
         }
         win.close();
-        showToast(
-          locale === "ja"
-            ? "レポートの生成に失敗しました。"
-            : "Failed to generate the report.",
-          "error"
-        );
+        showToast(t.reportFailed, "error");
       } finally {
         // Only the latest generation clears the busy state, so an aborted
         // older run can't flip it off under a newer one still in flight.

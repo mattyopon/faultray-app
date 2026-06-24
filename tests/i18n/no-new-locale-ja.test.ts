@@ -18,7 +18,7 @@ import path from "path";
 const APP_DIR = path.resolve(__dirname, "..", "..", "src", "app");
 
 // Current count — a ceiling, not a target. Lower it as you migrate.
-const BASELINE = 605;
+const BASELINE = 603;
 
 function walk(dir: string): string[] {
   const out: string[] = [];
