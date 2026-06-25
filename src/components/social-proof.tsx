@@ -5,6 +5,7 @@ interface SocialProofDict {
   heading: string;
   githubStars: string;
   betaMessage: string;
+  betaSubtitle: string;
   betaCta: string;
   openSource: string;
 }
@@ -104,7 +105,7 @@ export function SocialProof({ dict, stars, pypiDownloads }: SocialProofProps) {
         <div className="grid md:grid-cols-3 gap-6 mb-16">
           {TESTIMONIALS.map((t) => (
             <div
-              key={t.author}
+              key={t.company}
               className="flex flex-col p-6 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)]"
             >
               <Quote size={20} className="text-[var(--gold)]/40 mb-4 shrink-0" />
@@ -126,7 +127,7 @@ export function SocialProof({ dict, stars, pypiDownloads }: SocialProofProps) {
         <div className="max-w-[640px] mx-auto text-center p-8 rounded-2xl border border-[var(--gold)]/20 bg-gradient-to-br from-[var(--gold)]/[0.04] to-[var(--bg-card)]">
           <p className="text-lg font-semibold text-[var(--text-primary)] mb-2">{dict.betaMessage}</p>
           <p className="text-[var(--text-secondary)] mb-6 text-sm">
-            現在アーリーアクセス段階です。ご意見・ご要望をお寄せいただけると大変助かります。
+            {dict.betaSubtitle}
           </p>
           <Link
             href="/contact"

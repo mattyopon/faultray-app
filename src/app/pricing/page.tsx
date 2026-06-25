@@ -210,10 +210,13 @@ export default function PricingPage() {
           <span className="hidden sm:block">·</span>
           <span>Cancel anytime</span>
         </div>
-        {/* JP-05: 日本語サポートの保証を明示 */}
-        <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-500/10 border border-blue-500/20">
-          <span className="text-sm font-semibold text-blue-400">日本語サポート対応 — 日本語でのメール・稟議書サポートを提供</span>
-        </div>
+        {/* JP-05: 日本語サポートの保証を明示。ja ロケール限定 — 日本語固有の訴求
+            なので非日本語ユーザーには生の日本語を見せない（i18n acceptance fix）。 */}
+        {isJa && (
+          <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-500/10 border border-blue-500/20">
+            <span className="text-sm font-semibold text-blue-400">日本語サポート対応 — 日本語でのメール・稟議書サポートを提供</span>
+          </div>
+        )}
       </div>
 
       {/* Billing toggle */}
@@ -434,12 +437,22 @@ export default function PricingPage() {
       <div className="max-w-[900px] mx-auto mt-8 p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] flex items-start gap-3">
         <span className="text-lg shrink-0">🏦</span>
         <div>
-          <p className="text-sm text-[var(--text-secondary)]">
-            <span className="text-[var(--text-primary)] font-semibold">請求書払い・銀行振込に対応しています。</span>{" "}
-            年間契約をご希望の企業様は <a href="mailto:sales@faultray.com" className="text-[var(--gold)] hover:underline">sales@faultray.com</a> までお問い合わせください。
-            インボイス制度対応の適格請求書を発行いたします。
-          </p>
-          <p className="text-xs text-[var(--text-muted)] mt-1">Invoice payment (bank transfer) available for annual plans. Contact us for enterprise billing.</p>
+          {isJa ? (
+            <>
+              <p className="text-sm text-[var(--text-secondary)]">
+                <span className="text-[var(--text-primary)] font-semibold">請求書払い・銀行振込に対応しています。</span>{" "}
+                年間契約をご希望の企業様は <a href="mailto:sales@faultray.com" className="text-[var(--gold)] hover:underline">sales@faultray.com</a> までお問い合わせください。
+                インボイス制度対応の適格請求書を発行いたします。
+              </p>
+              <p className="text-xs text-[var(--text-muted)] mt-1">Invoice payment (bank transfer) available for annual plans. Contact us for enterprise billing.</p>
+            </>
+          ) : (
+            <p className="text-sm text-[var(--text-secondary)]">
+              <span className="text-[var(--text-primary)] font-semibold">Invoice payment (bank transfer) available.</span>{" "}
+              For annual or enterprise billing, contact{" "}
+              <a href="mailto:sales@faultray.com" className="text-[var(--gold)] hover:underline">sales@faultray.com</a>.
+            </p>
+          )}
         </div>
       </div>
 
@@ -447,7 +460,11 @@ export default function PricingPage() {
       <div className="max-w-[900px] mx-auto mt-8 pt-8 border-t border-[var(--border-color)] flex flex-wrap justify-center gap-6 text-sm text-[var(--text-muted)]">
         <Link href="/privacy" className="hover:text-[var(--text-primary)] transition-colors">Privacy Policy</Link>
         <Link href="/terms" className="hover:text-[var(--text-primary)] transition-colors">Terms of Service</Link>
-        <Link href="/tokushoho" className="hover:text-[var(--text-primary)] transition-colors">特定商取引法に基づく表記</Link>
+        {/* 特定商取引法に基づく表記 is a Japan-specific legal disclosure (tokushoho);
+            only surface it on the ja locale so non-JA users don't see raw Japanese. */}
+        {isJa && (
+          <Link href="/tokushoho" className="hover:text-[var(--text-primary)] transition-colors">特定商取引法に基づく表記</Link>
+        )}
         <a href="mailto:sales@faultray.com" className="hover:text-[var(--text-primary)] transition-colors">Contact Sales</a>
       </div>
     </div>
