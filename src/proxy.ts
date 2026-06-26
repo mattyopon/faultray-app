@@ -177,16 +177,30 @@ export async function proxy(request: NextRequest) {
   if (pathnameHasLocale) {
     const appPaths = [...PUBLIC_PAGES, "/login", ...APP_ROUTES];
     let strippedPath = pathname;
+    let strippedLocale: string | null = null;
     for (const locale of locales) {
       if (pathname.startsWith(`/${locale}/`)) {
         strippedPath = pathname.slice(locale.length + 1);
+        strippedLocale = locale;
         break;
       }
     }
     if (appPaths.some((path) => strippedPath === path || strippedPath.startsWith(path + "/"))) {
       const url = request.nextUrl.clone();
       url.pathname = strippedPath;
-      return NextResponse.redirect(url);
+      const redirect = NextResponse.redirect(url);
+      // I18N: the locale prefix is stripped for non-prefixed app routes, so the
+      // page mounts at e.g. /features with no locale segment. Persist the locale
+      // the user explicitly navigated to into NEXT_LOCALE — the documented
+      // fallback useLocale() reads — otherwise a direct hit or new tab on
+      // /ja/features loses the locale and renders English.
+      if (strippedLocale) {
+        redirect.cookies.set("NEXT_LOCALE", strippedLocale, {
+          path: "/",
+          maxAge: 31536000,
+        });
+      }
+      return redirect;
     }
   }
 
