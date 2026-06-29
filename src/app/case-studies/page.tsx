@@ -91,17 +91,17 @@ export default function CaseStudiesPage() {
       {/* Header */}
       <div className="flex items-center gap-4 mb-4">
         <BookOpen size={28} className="text-[var(--gold)]" />
-        <h1 className="text-3xl font-bold tracking-tight">Customer Success Stories</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Example Scenarios</h1>
       </div>
       <p className="text-[var(--text-secondary)] mb-4 text-lg">
-        Real results from teams using FaultRay to prove infrastructure resilience — without touching production.
+        Representative scenarios showing how teams use FaultRay to surface resilience gaps — without touching production.
       </p>
-      <div className="mb-14 p-4 rounded-xl border border-yellow-500/20 bg-yellow-500/[0.04]">
-        <p className="text-sm text-yellow-300 font-semibold mb-1">⚠ Illustrative Examples</p>
+      <div className="mb-14 p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]">
+        <p className="text-sm text-[var(--text-secondary)] font-semibold mb-1">Example scenarios</p>
         <p className="text-xs text-[var(--text-muted)]">
-          The following are anonymized, illustrative examples from our beta program — they do
-          not reference real company or individual names. Formal case studies are in preparation.
-          If you&apos;d like to be featured, contact{" "}
+          These are representative scenarios on sample topologies, not named customer references.
+          Want to see FaultRay run against your own infrastructure? Start a design-partner pilot —
+          contact{" "}
           <a href="mailto:sales@faultray.com" className="text-[var(--gold)] hover:underline">
             sales@faultray.com
           </a>

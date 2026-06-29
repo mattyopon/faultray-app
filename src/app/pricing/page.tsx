@@ -19,7 +19,7 @@ interface Plan {
   cta: string;
   ctaHref: string;
   popular: boolean;
-  stripePlan: "pro" | "business" | null;
+  stripePlan: "starter" | "pro" | "business" | null;
   sla: string | null;
 }
 
@@ -30,7 +30,7 @@ const plans: Plan[] = [
     annualMonthlyPrice: 799,   // 999 * 12 * 0.8 / 12 ≈ 799
     annualTotal: 9590,         // 999 * 12 * 0.8 rounded
     desc: "For enterprises needing unlimited access, SSO, and dedicated support.",
-    features: ["Unlimited simulations", "Unlimited components", "Everything in Pro", "Research-prototype evidence export", "Custom SSO / SAML", "Dedicated support (1h)", "Prometheus integration", "On-premise deployment"],
+    features: ["Unlimited simulations", "Unlimited components", "Everything in Pro", "DORA-aligned evidence pack", "Custom SSO / SAML", "Dedicated support (1h)", "Prometheus integration", "On-premise deployment"],
     disabledFeatures: [],
     cta: "Get a Quote",
     ctaHref: "/contact?plan=business",
@@ -43,8 +43,8 @@ const plans: Plan[] = [
     monthlyPrice: 299,
     annualMonthlyPrice: 239,   // 299 * 12 * 0.8 / 12 ≈ 239
     annualTotal: 2869,         // 299 * 12 * 0.8 rounded
-    desc: "For teams that need research-prototype evidence exports and higher limits.",
-    features: ["14-day free trial", "100 simulations / month", "Up to 50 components", "Everything in Free", "Research-prototype evidence export (PDF)", "AI-assisted analysis", "Email support (24h)"],
+    desc: "For teams that need DORA-aligned evidence exports and higher limits.",
+    features: ["14-day free trial", "100 simulations / month", "Up to 50 components", "Everything in Free", "DORA-aligned evidence pack (PDF)", "AI-assisted analysis", "Email support (24h)"],
     disabledFeatures: ["Insurance API", "Custom SSO"],
     cta: "Start Free Trial",
     ctaHref: "/login?plan=pro",
@@ -59,11 +59,11 @@ const plans: Plan[] = [
     annualTotal: 949,
     desc: "For small teams getting started with reliability testing. 30 simulations covers most ongoing monitoring needs.",
     features: ["30 simulations / month", "Up to 20 components", "Everything in Free", "Email support (48h)", "Basic remediation suggestions"],
-    disabledFeatures: ["Research-prototype evidence export", "AI-assisted analysis", "Custom SSO"],
+    disabledFeatures: ["DORA-aligned evidence pack", "AI-assisted analysis", "Custom SSO"],
     cta: "Start Starter",
     ctaHref: "/login?plan=starter",
     popular: false,
-    stripePlan: null,
+    stripePlan: "starter",
     sla: null,
   },
   {
@@ -73,7 +73,7 @@ const plans: Plan[] = [
     annualTotal: 0,
     desc: "Perfect for individual engineers exploring chaos engineering. 5 simulations covers most proof-of-concept evaluations.",
     features: ["5 simulations / month", "Up to 5 components", "Multiple simulation engines", "N-Layer Availability Model", "HTML reports", "Community support"],
-    disabledFeatures: ["Research-prototype evidence export", "Custom SSO"],
+    disabledFeatures: ["DORA-aligned evidence pack", "Custom SSO"],
     cta: "Get Started Free",
     ctaHref: "/login",
     popular: false,
@@ -87,7 +87,7 @@ const featureComparison = [
   { name: "Components", free: "5", starter: "20", pro: "50", business: "Unlimited" },
   { name: "Simulation engines", free: "100+", starter: "100+", pro: "100+", business: "100+" },
   { name: "N-Layer Model", free: true, starter: true, pro: true, business: true },
-  { name: "Research-prototype evidence export", free: false, starter: false, pro: "PDF", business: "PDF + API" },
+  { name: "DORA-aligned evidence pack", free: false, starter: false, pro: "PDF", business: "PDF + API" },
   { name: "Insurance API", free: false, starter: false, pro: false, business: true },
   { name: "AI-assisted analysis", free: false, starter: false, pro: true, business: true },
   { name: "Custom SSO / SAML", free: false, starter: false, pro: false, business: true },
@@ -119,12 +119,12 @@ function CellValue({ value }: { value: string | boolean }) {
 export default function PricingPage() {
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [billing, setBilling] = useState<BillingCycle>("monthly");
-  const [checkoutError, setCheckoutError] = useState<{ plan: "pro" | "business"; message: string } | null>(null);
+  const [checkoutError, setCheckoutError] = useState<{ plan: "starter" | "pro" | "business"; message: string } | null>(null);
   // COPY-NEW-06: ロケール検出して日本語UIに対応
   const locale = useLocale();
   const isJa = locale === "ja";
 
-  const handleCheckout = async (plan: "pro" | "business") => {
+  const handleCheckout = async (plan: "starter" | "pro" | "business") => {
     setLoadingPlan(plan);
     setCheckoutError(null);
     const errMsg = isJa
