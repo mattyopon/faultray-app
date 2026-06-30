@@ -166,7 +166,12 @@ export async function proxy(request: NextRequest) {
   // header on a locale-less request.
   request.headers.set("x-faultray-locale", pathLocale ?? "");
   const persistPathLocale = (res: NextResponse): NextResponse => {
-    if (pathLocale) {
+    // Only persist the cookie under strict CSP (the layout is already dynamic
+    // there). Under FAULTRAY_CSP_STRICT=0 the response must stay free of
+    // Set-Cookie so the CDN can cache localized landing pages (the documented
+    // static rollback); useLocale's client effect still persists locale
+    // post-hydration.
+    if (pathLocale && strictCsp) {
       res.cookies.set("NEXT_LOCALE", pathLocale, {
         path: "/",
         maxAge: 31536000,
