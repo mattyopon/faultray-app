@@ -421,7 +421,7 @@ export default function PricingPage() {
             <h3 className="text-base font-bold text-[var(--text-primary)] mb-1">Already on Pro? Unlock more with Business.</h3>
             <p className="text-sm text-[var(--text-secondary)]">
               Unlimited simulations, custom SSO, dedicated Slack support, Insurance API, and on-premise deployment.
-              Teams exploring DORA-aligned research use Business for broader coverage. (Research prototype — not a certified compliance tool.)
+              Teams running DORA-aligned resilience preparation use Business for broader coverage across teams and environments.
             </p>
           </div>
           <Link

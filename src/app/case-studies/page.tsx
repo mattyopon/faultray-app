@@ -3,18 +3,19 @@ import Link from "next/link";
 import { BookOpen, ArrowRight, TrendingUp, Clock, Shield, Zap } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Customer Success Stories",
+  title: "Example Scenarios",
   description:
-    "Real results from teams using FaultRay to prove infrastructure resilience without touching production.",
+    "Representative scenarios showing how teams use FaultRay to surface resilience gaps before deployment, without touching production.",
   alternates: { canonical: "https://faultray.com/case-studies" },
 };
 
 /* ============================================================
  * Data
  * ============================================================ */
-// MATERIAL-01: ケーススタディ（顧客成功事例）
-// Note: These represent anonymized composite examples from beta users.
-// Names and metrics are illustrative until formal case studies are signed off.
+// MATERIAL-01: 例示シナリオ（実顧客事例ではない）
+// Note: These are ILLUSTRATIVE, hypothetical example scenarios — NOT real or
+// named customers. The quotes and metrics demonstrate the kind of finding
+// FaultRay surfaces, not signed-off customer outcomes.
 const CASE_STUDIES = [
   {
     id: "fintech-team",
@@ -33,7 +34,7 @@ const CASE_STUDIES = [
     ],
     quote:
       "We proved our availability ceiling to investors before touching a single production system. FaultRay gave us a math-backed answer in an afternoon.",
-    role: "VP Engineering, Series B FinTech",
+    role: "Illustrative scenario · FinTech / payments",
   },
   {
     id: "ecommerce-team",
@@ -52,7 +53,7 @@ const CASE_STUDIES = [
     ],
     quote:
       "Within 3 minutes we knew the exact bottleneck. The YAML topology took 20 minutes to write. Total time from zero to action plan: one afternoon.",
-    role: "Platform Lead, E-Commerce Company",
+    role: "Illustrative scenario · E-commerce / retail",
   },
   {
     id: "saas-startup",
@@ -71,7 +72,7 @@ const CASE_STUDIES = [
     ],
     quote:
       "Our enterprise prospects asked for resilience documentation. FaultRay let us generate a credible report before we even had a dedicated SRE.",
-    role: "CTO, B2B SaaS Startup",
+    role: "Illustrative scenario · B2B SaaS",
   },
 ];
 
@@ -94,12 +95,12 @@ export default function CaseStudiesPage() {
         <h1 className="text-3xl font-bold tracking-tight">Example Scenarios</h1>
       </div>
       <p className="text-[var(--text-secondary)] mb-4 text-lg">
-        Representative scenarios showing how teams use FaultRay to surface resilience gaps — without touching production.
+        Illustrative scenarios showing how teams could use FaultRay to surface resilience gaps before deployment, without touching production.
       </p>
       <div className="mb-14 p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]">
         <p className="text-sm text-[var(--text-secondary)] font-semibold mb-1">Example scenarios</p>
         <p className="text-xs text-[var(--text-muted)]">
-          These are representative scenarios on sample topologies, not named customer references.
+          These are illustrative example scenarios — not real or named customer references.
           Want to see FaultRay run against your own infrastructure? Start a design-partner pilot —
           contact{" "}
           <a href="mailto:sales@faultray.com" className="text-[var(--gold)] hover:underline">
