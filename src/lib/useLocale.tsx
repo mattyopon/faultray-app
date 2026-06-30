@@ -13,8 +13,20 @@ const LocaleContext = createContext<LocaleContextType>({
   setLocale: () => {},
 });
 
-export function LocaleProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(defaultLocale);
+export function LocaleProvider({
+  children,
+  initialLocale,
+}: {
+  children: ReactNode;
+  initialLocale?: Locale;
+}) {
+  // Seed from the server-resolved locale (NEXT_LOCALE cookie, read in the root
+  // layout) so the first render — server HTML and client hydration — already
+  // matches the user's language, even with JS disabled. The effect below then
+  // refines from the URL path / cookie for client-side navigation.
+  const [locale, setLocaleState] = useState<Locale>(
+    initialLocale ?? defaultLocale,
+  );
 
   useEffect(() => {
     // I18N-05: パス先頭のロケール（/ja 等）は「いま表示している言語」なので

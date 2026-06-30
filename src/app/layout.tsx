@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { Inter, Noto_Sans_JP, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { AuthProvider } from "@/components/auth-provider";
@@ -10,7 +10,7 @@ import { CookieConsent } from "@/components/cookie-consent";
 import { ResearchPrototypeBanner } from "@/components/research-prototype-banner";
 import { cspStrictEnabled } from "@/lib/csp";
 import { PUBLIC_PAGES } from "@/lib/public-routes";
-import { locales } from "@/i18n/config";
+import { locales, type Locale, defaultLocale } from "@/i18n/config";
 import "./globals.css";
 
 const inter = Inter({
@@ -198,11 +198,20 @@ export default async function RootLayout({
     ? ((await headers()).get("x-faultray-nonce") ?? undefined)
     : undefined;
 
-  // I18N-04: Detect locale from cookie/Accept-Language for html lang attribute
-  // Falls back to "en" for root layout; locale-specific layouts override via their own html element
+  // I18N: seed the locale from the NEXT_LOCALE cookie at SSR so locale-less
+  // pages (e.g. /features reached from /ja) render in the user's language even
+  // before client hydration or with JS disabled. The proxy sets this cookie when
+  // serving a localized route; the layout already opts into dynamic rendering
+  // for the CSP nonce, so reading the cookie adds no static-generation cost.
+  const cookieLocale = (await cookies()).get("NEXT_LOCALE")?.value;
+  const initialLocale: Locale =
+    cookieLocale && (locales as readonly string[]).includes(cookieLocale)
+      ? (cookieLocale as Locale)
+      : defaultLocale;
+
   return (
     <html
-      lang="en"
+      lang={initialLocale}
       className={`${inter.variable} ${notoSansJP.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
@@ -287,7 +296,7 @@ export default async function RootLayout({
           }}
         />
         <AuthProvider>
-          <LocaleProvider>
+          <LocaleProvider initialLocale={initialLocale}>
             <Navbar />
             <ResearchPrototypeBanner />
             <Breadcrumb />
