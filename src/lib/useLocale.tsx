@@ -23,6 +23,12 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     // 起こしうるため、effect 内で window.location を読む（Next docs 準拠）。
     const seg = window.location.pathname.split("/")[1];
     if (locales.includes(seg as Locale)) {
+      // Persist the path locale into the fallback cookie so navigation to
+      // locale-less pages (e.g. the "/features" CTA from /ja) stays in this
+      // language instead of regressing to English. The cookie is the documented
+      // fallback for locale-less pages; a clean visitor landing on /ja must
+      // populate it, otherwise the first locale-less page they open is EN.
+      document.cookie = `NEXT_LOCALE=${encodeURIComponent(seg)};path=/;max-age=31536000`;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setLocaleState(seg as Locale);
       return;
