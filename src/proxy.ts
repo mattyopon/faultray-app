@@ -151,6 +151,25 @@ export async function proxy(request: NextRequest) {
     (locale) => pathname.startsWith(`/${locale}/`) || pathname === `/${locale}`
   );
 
+  // Locale present in the path (e.g. the /ja marketing landing). Persist it into
+  // NEXT_LOCALE on the document response so a clean visitor — no prior cookie,
+  // JS disabled, or clicking a locale-less link (the /features CTA) before React
+  // hydrates the client cookie write — keeps their language instead of falling
+  // back to English. Complements the client-side persistence in useLocale().
+  const pathLocale =
+    locales.find(
+      (l) => pathname === `/${l}` || pathname.startsWith(`/${l}/`)
+    ) ?? null;
+  const persistPathLocale = (res: NextResponse): NextResponse => {
+    if (pathLocale) {
+      res.cookies.set("NEXT_LOCALE", pathLocale, {
+        path: "/",
+        maxAge: 31536000,
+      });
+    }
+    return res;
+  };
+
   // If no locale in path, redirect to preferred locale
   // Only for the root and LP-related paths
   if (!pathnameHasLocale) {
@@ -210,7 +229,7 @@ export async function proxy(request: NextRequest) {
 
   // If Supabase is not configured, pass through
   if (!supabaseUrl || !supabaseKey) {
-    return withCsp(NextResponse.next({ request }));
+    return persistPathLocale(withCsp(NextResponse.next({ request })));
   }
 
   let supabaseResponse = NextResponse.next({ request });
@@ -270,7 +289,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  return withCsp(supabaseResponse);
+  return persistPathLocale(withCsp(supabaseResponse));
 }
 
 export const config = {
