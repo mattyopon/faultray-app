@@ -25,23 +25,23 @@
     },
     "cta": "Commencer gratuitement",
     "demo": "Démo en direct",
-    "ctaPrimary": "Book a 20-min Evidence Sprint scoping call",
+    "ctaPrimary": "Réserver un appel de cadrage de 20 min pour le Sprint d’éléments probants",
     "evidenceSprint": {
-      "title": "DORA Resilience Evidence Sprint",
-      "blurb": "In 5 business days, we work only with sanitized data — no production access, no PII. Fixed at $2,500 with 50% upfront, the Sprint delivers a structured resilience evidence pack for DORA pre-audit preparation."
+      "title": "Sprint d’éléments probants de résilience DORA",
+      "blurb": "En 5 jours ouvrés, nous travaillons uniquement avec des données expurgées — aucun accès à la production, aucune donnée à caractère personnel. À prix fixe de $2,500 avec 50% d’acompte, le Sprint d’éléments probants fournit un dossier structuré d’éléments probants de résilience pour la préparation en amont d’un audit DORA."
     },
     "valueProps": [
       {
-        "title": "Audit-ready evidence pack",
-        "desc": "A structured evidence pack risk, resilience, compliance, and CTO teams can use to prepare for DORA audit conversations."
+        "title": "Dossier d’éléments probants prêt pour l’audit",
+        "desc": "Un dossier structuré d’éléments probants que les équipes risque, résilience, conformité et CTO peuvent utiliser pour préparer les échanges d’audit DORA."
       },
       {
-        "title": "Traceable DORA mapping",
-        "desc": "A traceable view of how critical-service evidence aligns to relevant DORA articles, with assumptions separated for review."
+        "title": "Cartographie DORA traçable",
+        "desc": "Une vue traçable de la manière dont les éléments probants relatifs aux services critiques s’alignent sur les articles DORA pertinents, avec les hypothèses présentées séparément pour examen."
       },
       {
-        "title": "Board-ready resilience reporting",
-        "desc": "Executive summaries that distinguish evidence, assumptions, and open decisions for board and regulator-facing preparation."
+        "title": "Reporting de résilience prêt pour le conseil d’administration",
+        "desc": "Des synthèses exécutives qui distinguent les éléments probants, les hypothèses et les décisions en suspens pour préparer les échanges avec le conseil d’administration et les régulateurs."
       }
     ]
   },

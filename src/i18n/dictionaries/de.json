@@ -25,23 +25,23 @@
     },
     "cta": "Kostenlos starten",
     "demo": "Live-Demo",
-    "ctaPrimary": "Book a 20-min Evidence Sprint scoping call",
+    "ctaPrimary": "Einen 20-minütigen Scoping-Call zum Evidence Sprint buchen",
     "evidenceSprint": {
-      "title": "DORA Resilience Evidence Sprint",
-      "blurb": "In 5 business days, we work only with sanitized data — no production access, no PII. Fixed at $2,500 with 50% upfront, the Sprint delivers a structured resilience evidence pack for DORA pre-audit preparation."
+      "title": "DORA-Resilienz-Evidence-Sprint",
+      "blurb": "In 5 Werktagen arbeiten wir ausschließlich mit bereinigten Daten — kein Produktionszugriff, keine personenbezogenen Daten. Zum Festpreis von $2,500 mit 50% Vorauszahlung liefert der Evidence Sprint ein strukturiertes Resilienz-Nachweispaket für die Vorbereitung im Vorfeld eines DORA-Audits."
     },
     "valueProps": [
       {
-        "title": "Audit-ready evidence pack",
-        "desc": "A structured evidence pack risk, resilience, compliance, and CTO teams can use to prepare for DORA audit conversations."
+        "title": "Auditbereites Nachweispaket",
+        "desc": "Ein strukturiertes Nachweispaket, das Risiko-, Resilienz-, Compliance- und CTO-Teams zur Vorbereitung auf DORA-Auditgespräche nutzen können."
       },
       {
-        "title": "Traceable DORA mapping",
-        "desc": "A traceable view of how critical-service evidence aligns to relevant DORA articles, with assumptions separated for review."
+        "title": "Nachvollziehbares DORA-Mapping",
+        "desc": "Eine nachvollziehbare Sicht darauf, wie Nachweise zu kritischen Services relevanten DORA-Artikeln zugeordnet sind, wobei Annahmen zur Prüfung getrennt ausgewiesen werden."
       },
       {
-        "title": "Board-ready resilience reporting",
-        "desc": "Executive summaries that distinguish evidence, assumptions, and open decisions for board and regulator-facing preparation."
+        "title": "Vorstandsgeeignetes Resilienz-Reporting",
+        "desc": "Management-Zusammenfassungen, die Nachweise, Annahmen und offene Entscheidungen für die Vorbereitung gegenüber Vorstand und Aufsichtsbehörden voneinander abgrenzen."
       }
     ]
   },

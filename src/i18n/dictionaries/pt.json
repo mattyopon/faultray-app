@@ -25,23 +25,23 @@
     },
     "cta": "Começar Grátis",
     "demo": "Demo ao Vivo",
-    "ctaPrimary": "Book a 20-min Evidence Sprint scoping call",
+    "ctaPrimary": "Agendar uma chamada de definição de âmbito de 20 min para o Sprint de Evidências",
     "evidenceSprint": {
-      "title": "DORA Resilience Evidence Sprint",
-      "blurb": "In 5 business days, we work only with sanitized data — no production access, no PII. Fixed at $2,500 with 50% upfront, the Sprint delivers a structured resilience evidence pack for DORA pre-audit preparation."
+      "title": "Sprint de Evidências de Resiliência DORA",
+      "blurb": "Em 5 dias úteis, trabalhamos apenas com dados sanitizados — sem acesso à produção, sem dados pessoais identificáveis (PII). Com preço fixo de $2,500 e 50% pagos antecipadamente, o Sprint de Evidências entrega um pacote estruturado de evidências de resiliência para a preparação prévia a uma auditoria DORA."
     },
     "valueProps": [
       {
-        "title": "Audit-ready evidence pack",
-        "desc": "A structured evidence pack risk, resilience, compliance, and CTO teams can use to prepare for DORA audit conversations."
+        "title": "Pacote de evidências pronto para auditoria",
+        "desc": "Um pacote estruturado de evidências que as equipas de risco, resiliência, conformidade e CTO podem utilizar para preparar discussões de auditoria DORA."
       },
       {
-        "title": "Traceable DORA mapping",
-        "desc": "A traceable view of how critical-service evidence aligns to relevant DORA articles, with assumptions separated for review."
+        "title": "Mapeamento DORA rastreável",
+        "desc": "Uma visão rastreável de como as evidências de serviços críticos se alinham com os artigos DORA relevantes, com os pressupostos separados para revisão."
       },
       {
-        "title": "Board-ready resilience reporting",
-        "desc": "Executive summaries that distinguish evidence, assumptions, and open decisions for board and regulator-facing preparation."
+        "title": "Relatórios de resiliência prontos para o conselho de administração",
+        "desc": "Resumos executivos que distinguem evidências, pressupostos e decisões em aberto para a preparação junto do conselho de administração e dos reguladores."
       }
     ]
   },
