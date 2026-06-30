@@ -194,20 +194,30 @@ export default async function RootLayout({
   const rawHotjarId = process.env.NEXT_PUBLIC_HOTJAR_ID;
   const hotjarId = rawHotjarId && /^\d+$/.test(rawHotjarId) ? rawHotjarId : undefined;
 
-  const nonce = STRICT_CSP
-    ? ((await headers()).get("x-faultray-nonce") ?? undefined)
-    : undefined;
-
-  // I18N: seed the locale from the NEXT_LOCALE cookie at SSR so locale-less
-  // pages (e.g. /features reached from /ja) render in the user's language even
-  // before client hydration or with JS disabled. The proxy sets this cookie when
-  // serving a localized route; the layout already opts into dynamic rendering
-  // for the CSP nonce, so reading the cookie adds no static-generation cost.
-  const cookieLocale = (await cookies()).get("NEXT_LOCALE")?.value;
-  const initialLocale: Locale =
-    cookieLocale && (locales as readonly string[]).includes(cookieLocale)
-      ? (cookieLocale as Locale)
-      : defaultLocale;
+  // Request-scoped reads (CSP nonce + SSR locale seed) only happen on the strict
+  // path, which is already dynamically rendered. When strict CSP is rolled back
+  // (FAULTRAY_CSP_STRICT=0) the layout stays static / CDN-cacheable and the SSR
+  // locale falls back to the default (useLocale()'s client effect still corrects
+  // it after hydration).
+  let nonce: string | undefined;
+  let initialLocale: Locale = defaultLocale;
+  if (STRICT_CSP) {
+    const requestHeaders = await headers();
+    nonce = requestHeaders.get("x-faultray-nonce") ?? undefined;
+    // The proxy forwards the authoritative PATH locale (/en, /ja, ...). Prefer
+    // it over the NEXT_LOCALE cookie so an explicit localized URL is never
+    // overridden by a stale cookie; fall back to the cookie for locale-less
+    // pages (e.g. /features reached from /ja).
+    const headerLocale = requestHeaders.get("x-faultray-locale") || undefined;
+    const cookieLocale = (await cookies()).get("NEXT_LOCALE")?.value;
+    const resolved =
+      headerLocale && (locales as readonly string[]).includes(headerLocale)
+        ? headerLocale
+        : cookieLocale && (locales as readonly string[]).includes(cookieLocale)
+          ? cookieLocale
+          : null;
+    if (resolved) initialLocale = resolved as Locale;
+  }
 
   return (
     <html

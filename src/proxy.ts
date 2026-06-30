@@ -151,15 +151,20 @@ export async function proxy(request: NextRequest) {
     (locale) => pathname.startsWith(`/${locale}/`) || pathname === `/${locale}`
   );
 
-  // Locale present in the path (e.g. the /ja marketing landing). Persist it into
-  // NEXT_LOCALE on the document response so a clean visitor — no prior cookie,
-  // JS disabled, or clicking a locale-less link (the /features CTA) before React
-  // hydrates the client cookie write — keeps their language instead of falling
-  // back to English. Complements the client-side persistence in useLocale().
+  // Locale present in the path (e.g. the /ja marketing landing). Used two ways:
+  //  - forwarded to the server layout as the AUTHORITATIVE SSR locale (path >
+  //    cookie) so an explicit /en is never server-rendered in a stale cookie's
+  //    language; and
+  //  - persisted into NEXT_LOCALE on the document response so a clean visitor
+  //    (no cookie, JS disabled, or clicking a locale-less /features link before
+  //    the client cookie write) keeps their language. Complements useLocale().
   const pathLocale =
     locales.find(
       (l) => pathname === `/${l}` || pathname.startsWith(`/${l}/`)
     ) ?? null;
+  // Always set (empty string when none) so a client cannot spoof this trusted
+  // header on a locale-less request.
+  request.headers.set("x-faultray-locale", pathLocale ?? "");
   const persistPathLocale = (res: NextResponse): NextResponse => {
     if (pathLocale) {
       res.cookies.set("NEXT_LOCALE", pathLocale, {
