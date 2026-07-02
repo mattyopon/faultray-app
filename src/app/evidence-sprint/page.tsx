@@ -81,10 +81,10 @@ export default function EvidenceSprintPage() {
               {t.hero.ctaLabel}
             </Link>
             <Link
-              href={homeHref}
+              href="#how-it-works"
               className="inline-flex items-center gap-2 px-7 py-3 border border-[var(--border-color)] text-white rounded-xl hover:border-[#64748b] hover:bg-white/[0.03] transition-all"
             >
-              FaultRay
+              {t.hero.seeHow}
             </Link>
           </div>
         </div>
@@ -144,7 +144,7 @@ export default function EvidenceSprintPage() {
       </section>
 
       {/* How it works */}
-      <section className="py-16 border-t border-[var(--border-color)]">
+      <section id="how-it-works" className="scroll-mt-20 py-16 border-t border-[var(--border-color)]">
         <div className="max-w-[980px] mx-auto px-6">
           <h2 className="text-2xl font-bold text-center mb-10">{t.howItWorks.heading}</h2>
           <div className="grid md:grid-cols-4 gap-5 mb-8">
