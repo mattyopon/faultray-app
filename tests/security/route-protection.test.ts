@@ -87,3 +87,39 @@ describe("proxy route protection (unauthenticated)", () => {
     expect(isPublicPage("/dashboard")).toBe(false);
   });
 });
+
+describe("public page discoverability (robots / sitemap)", () => {
+  // robots.txt semantics: the longest matching rule wins; Allow wins ties.
+  // "/evidence-sprint" was crawl-blocked by the prefix-matched "/evidence"
+  // disallow until an explicit Allow carve-out was added — assert the
+  // longest-match outcome for EVERY public page so a future public route
+  // shadowed by an app-path disallow prefix fails here instead of shipping.
+  const crawlAllowed = (
+    path: string,
+    allow: string[],
+    disallow: string[]
+  ): boolean => {
+    const longest = (rules: string[]) =>
+      rules.reduce((n, r) => (path.startsWith(r) ? Math.max(n, r.length) : n), 0);
+    return longest(allow) >= longest(disallow);
+  };
+
+  it("robots longest-match allows every PUBLIC_PAGES entry", async () => {
+    const robots = (await import("../../src/app/robots")).default();
+    const rule = Array.isArray(robots.rules) ? robots.rules[0] : robots.rules;
+    const allow = [rule.allow].flat().filter((r): r is string => !!r);
+    const disallow = [rule.disallow].flat().filter((r): r is string => !!r);
+    for (const page of PUBLIC_PAGES) {
+      expect(
+        crawlAllowed(page, allow, disallow),
+        `${page} must be crawlable (add an Allow carve-out if an app-path disallow prefix shadows it)`
+      ).toBe(true);
+    }
+  });
+
+  it("sitemap lists the /evidence-sprint offer page", async () => {
+    const sitemap = (await import("../../src/app/sitemap")).default();
+    const urls = sitemap.map((e) => new URL(e.url).pathname);
+    expect(urls).toContain("/evidence-sprint");
+  });
+});
